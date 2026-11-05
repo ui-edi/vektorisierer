@@ -44,6 +44,7 @@ var d=document.createElement('meta');d.name='darkreader-lock';h.appendChild(d);}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{height:100%}
+html{touch-action:pan-x pan-y} /* Oberfläche zoomt nicht mit; gezoomt wird nur im Bild */
 body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 var(--f-body);overflow:hidden}
 :focus-visible{outline:2px solid var(--path);outline-offset:2px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
@@ -81,7 +82,7 @@ body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 var(--f-bod
 .seg.small button{padding:7px 7px;min-height:30px;font-size:12px;white-space:nowrap}
 @media (max-width:370px){.seg.small button{padding:7px 5px;font-size:11px}}
 .viewport{position:relative;flex:1;min-height:0}
-.zoomer{position:absolute;inset:0;overflow:auto;display:grid;background:repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0/18px 18px;touch-action:pan-x pan-y pinch-zoom}
+.zoomer{position:absolute;inset:0;overflow:auto;display:grid;background:repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0/18px 18px;touch-action:none;cursor:grab}
 .canvasbox{position:relative;margin:auto;cursor:crosshair}
 .canvasbox img{position:absolute;inset:0;width:100%;height:100%;display:block;image-rendering:auto}
 .canvasbox.pixel #orgimg{image-rendering:pixelated}
@@ -1837,7 +1838,7 @@ function sampleCanvas(){
 
 // ---------- Bild laden ----------
 function useCanvas(c,name,isSample){
-  src={canvas:c,name:name||'bild'};
+  src={canvas:c,name:name||'bild'};zoom=1;syncZoomButtons();
   $('srcnote').textContent=isSample?'Beispielbild geladen. Wähle oder ziehe dein eigenes Bild hinein, oder füge es mit Einfügen ein.':('Geladen: '+src.name+' ('+c.width+' × '+c.height+' px)');
   prepareWork();run();
 }
@@ -2087,19 +2088,66 @@ function applyView(){
   g.addEventListener('click',function(e){e.stopPropagation();});
   g.addEventListener('keydown',function(e){var d=e.key==='ArrowLeft'?-2:e.key==='ArrowRight'?2:0;if(!d)return;e.preventDefault();split=Math.max(0,Math.min(100,split+d));applyView();});
 })();
-Array.prototype.forEach.call($('zoomseg').querySelectorAll('button'),function(b){b.onclick=function(){zoom=+b.dataset.z;Array.prototype.forEach.call($('zoomseg').querySelectorAll('button'),function(x){x.setAttribute('aria-pressed',x===b);});sizeBox();refreshPreview(0);};});
+// ---------- Zoom nur im Bild: zwei Finger zoomen, ein Finger verschiebt, Tippen bleibt Tippen ----------
+var ZMAX=16;
+function syncZoomButtons(){Array.prototype.forEach.call($('zoomseg').querySelectorAll('button'),function(x){x.setAttribute('aria-pressed',Math.abs(zoom-(+x.dataset.z))<0.05);});}
+function setZoom(nz,cx,cy){
+  if(!work)return;nz=Math.max(1,Math.min(ZMAX,nz));
+  var z=$('zoomer'),box=$('box'),zr=z.getBoundingClientRect(),br=box.getBoundingClientRect();
+  if(cx==null){cx=zr.left+zr.width/2;cy=zr.top+zr.height/2;}
+  var fx=br.width?(cx-br.left)/br.width:0.5,fy=br.height?(cy-br.top)/br.height:0.5;
+  zoom=nz;sizeBox();
+  z.scrollLeft=box.offsetLeft+fx*box.offsetWidth-(cx-zr.left);
+  z.scrollTop=box.offsetTop+fy*box.offsetHeight-(cy-zr.top);
+  syncZoomButtons();
+}
+Array.prototype.forEach.call($('zoomseg').querySelectorAll('button'),function(b){b.onclick=function(){setZoom(+b.dataset.z);refreshPreview(0);};});
+(function(){
+  var z=$('zoomer'),pts={},n=0,pinch=null,down=null,moved=false,last=null;
+  function list(){return Object.keys(pts).map(function(k){return pts[k];});}
+  function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)||1;}
+  z.addEventListener('pointerdown',function(e){
+    if(e.target.id==='grip'||(e.pointerType==='mouse'&&e.button!==0))return;
+    pts[e.pointerId]={x:e.clientX,y:e.clientY};n=list().length;
+    if(n===1){down={x:e.clientX,y:e.clientY};last={x:e.clientX,y:e.clientY};moved=false;}
+    if(n===2){var a=list();pinch={d:dist(a[0],a[1]),z:zoom};moved=true;}
+    e.preventDefault();
+  });
+  z.addEventListener('pointermove',function(e){
+    if(!pts[e.pointerId])return;pts[e.pointerId]={x:e.clientX,y:e.clientY};
+    var a=list();
+    if(a.length>=2&&pinch){setZoom(pinch.z*dist(a[0],a[1])/pinch.d,(a[0].x+a[1].x)/2,(a[0].y+a[1].y)/2);return;}
+    if(a.length===1&&last){
+      if(!moved&&down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)>8)moved=true;
+      if(moved){z.scrollLeft-=e.clientX-last.x;z.scrollTop-=e.clientY-last.y;}
+      last={x:e.clientX,y:e.clientY};
+    }
+  });
+  function up(e){
+    if(!pts[e.pointerId])return;delete pts[e.pointerId];var a=list();
+    if(a.length<2)pinch=null;
+    if(a.length===1){last={x:a[0].x,y:a[0].y};}
+    if(a.length===0){
+      last=null;
+      if(!moved&&e.type==='pointerup')tapAt(e.clientX,e.clientY);
+      else if(moved)refreshPreview(200);
+    }
+  }
+  z.addEventListener('pointerup',up);z.addEventListener('pointercancel',up);z.addEventListener('pointerleave',function(e){if(e.pointerType==='mouse')up(e);});
+  z.addEventListener('wheel',function(e){if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();setZoom(zoom*Math.exp(-e.deltaY*0.01),e.clientX,e.clientY);refreshPreview(250);},{passive:false});
+})();
 window.addEventListener('resize',function(){clearTimeout(sizeBox.t);sizeBox.t=setTimeout(function(){sizeBox();refreshPreview(0);},150);});
 
 // Farbe im Bild antippen
-$('box').addEventListener('click',function(e){
-  if(!R||e.target.id==='grip')return;var r=this.getBoundingClientRect();
-  var x=Math.floor((e.clientX-r.left)/r.width*R.w),y=Math.floor((e.clientY-r.top)/r.height*R.h);
+function tapAt(cx,cy){
+  if(!R)return;var r=$('box').getBoundingClientRect();
+  var x=Math.floor((cx-r.left)/r.width*R.w),y=Math.floor((cy-r.top)/r.height*R.h);
   if(x<0||y<0||x>=R.w||y>=R.h)return;
-  if(tapMode!=='pick'){wandTap(Math.min(work.w-1,Math.floor((e.clientX-r.left)/r.width*work.w)),Math.min(work.h-1,Math.floor((e.clientY-r.top)/r.height*work.h)),tapMode);return;}
+  if(tapMode!=='pick'){wandTap(Math.min(work.w-1,Math.floor((cx-r.left)/r.width*work.w)),Math.min(work.h-1,Math.floor((cy-r.top)/r.height*work.h)),tapMode);return;}
   var v=R.idx[y*R.w+x];
   if(v===255){showToast('Hier ist das Bild transparent.');return;}
   selectLayer(v,true);
-});
+}
 function selectLayer(i,scroll){
   sel=i;Array.prototype.forEach.call($('swlist').children,function(el){el.classList.toggle('sel',+el.dataset.i===i);});
   var L=layers[i];$('selinfo').textContent='Gewählt: '+L.cur.toUpperCase();

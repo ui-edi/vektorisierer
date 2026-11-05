@@ -74,6 +74,10 @@ public class MainActivity extends Activity {
         s.setAllowFileAccess(true);
         s.setAllowContentAccess(true);
         s.setMediaPlaybackRequiresUserGesture(true);
+        // Ganze Seite nicht zoomen: gezoomt wird nur im Bild (eigene Gesten der Seite)
+        s.setSupportZoom(false);
+        s.setBuiltInZoomControls(false);
+        s.setDisplayZoomControls(false);
         if (Build.VERSION.SDK_INT >= 33) {
             // Der Dunkelmodus darf die Vektorfarben nicht aufhellen: die Seite hat ein eigenes Dunkel-Design
             s.setAlgorithmicDarkeningAllowed(false);
