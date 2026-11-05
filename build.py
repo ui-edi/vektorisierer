@@ -11,9 +11,16 @@ assert '/*__IMAGETRACER__*/' in src, 'Platzhalter für den Motor fehlt in src/ve
 assert '</script' not in engine
 page = src.replace('/*__IMAGETRACER__*/', engine)
 
+# <title> gehört in den <head>
+import re
+m = re.match(r'\s*(<title>.*?</title>)\s*', page)
+title = m.group(1) if m else '<title>Vektorisierer</title>'
+if m:
+    page = page[m.end():]
+
 head = ('<!doctype html>\n<html lang="de">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">\n'
-        '<meta name="color-scheme" content="light dark">\n'
+        + title + '\n<meta name="color-scheme" content="light dark">\n'
         '<meta name="description" content="Bild rein, SVG raus: Bilder im Browser in Vektorgrafiken umwandeln, '
         'mit Hintergrund-Entferner und Pixelart-Modus.">\n'
         '<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}'
