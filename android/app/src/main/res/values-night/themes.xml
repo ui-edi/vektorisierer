@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Vektorisierer" parent="android:Theme.DeviceDefault.DayNight.NoActionBar">
+    <style name="Theme.Vektorisierer" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/vk_paper</item>
         <item name="android:colorAccent">@color/vk_path</item>
         <item name="android:windowLightStatusBar">false</item>
