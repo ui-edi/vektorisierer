@@ -286,6 +286,11 @@ textarea.fallback{width:100%;height:120px;font:12px var(--f-mono);background:var
             <p class="hint">Höher entfernt mehr ähnliche Töne, tiefer schont feine Kanten.</p>
           </div>
           <label class="toggle" for="bgholes">Eingeschlossene Lücken auch entfernen<input id="bgholes" type="checkbox"></label>
+          <div class="field" id="f-holemin" hidden>
+            <label for="holemin">Lücken ab <output id="o-holemin">0.05 %</output></label>
+            <input id="holemin" type="range" min="0" max="100" value="5">
+            <p class="hint">Kleinste Lücke, die mit weg soll (Anteil am Bild). Tief stellen für Innenräume von Buchstaben wie O, A und B.</p>
+          </div>
           <label class="toggle" for="bgedge">Farbsaum an den Kanten entfernen<input id="bgedge" type="checkbox" checked></label>
         </div>
       </div>
@@ -357,7 +362,12 @@ textarea.fallback{width:100%;height:120px;font:12px var(--f-mono);background:var
           <button class="btn" id="savepng">PNG speichern</button>
           <button class="btn" id="copy">SVG kopieren</button>
         </div>
-        <p class="hint">In der SVG ist jede Farbe ein eigener, benannter Pfad: in Illustrator oder Affinity direkt einzeln bearbeitbar.</p>
+        <div class="field">
+          <span class="fl">PNG-Grösse (längste Seite)</span>
+          <div class="chips" id="pngchips"><button data-px="2000">2000 px</button><button data-px="4000">4000 px</button><button data-px="6000">6000 px</button></div>
+          <p class="hint">Für T-Shirt-Druck A4 bei 300 dpi: rund 3500 px. Die SVG ist ohnehin beliebig gross.</p>
+        </div>
+        <p class="hint">In der SVG ist jede Farbe ein eigener, benannter Pfad (Gruppe «farben»), darunter die Gruppe «naht-unterlage», die Haarlinien schliesst. In Illustrator oder Affinity einzeln bearbeitbar.</p>
         <textarea class="fallback" id="fallback" hidden readonly aria-label="SVG-Code"></textarea>
       </div>
       <div class="panel">
@@ -399,19 +409,24 @@ function fastBlur(src,w,h,radius,delta){
   return out;
 }
 // Flecken im Pixelbild mit der Umgebung verschmelzen (statt sie später wegzuwerfen, was Löcher hinterlässt).
+// 8er-Nachbarschaft: diagonale Haare und feine Linien zählen als eine Fläche und bleiben stehen.
+// Transparenz bekommt einen Fleck nur, wenn rundherum keine Farbe ist (sonst würde der Rand angefressen).
+var NB8X=[-1,1,0,0,-1,1,-1,1],NB8Y=[0,0,-1,1,-1,-1,1,1];
 function despeckle(idx,w,h,minA){
   if(minA<2)return 0;
   var N=w*h,seen=new Uint8Array(N),q=new Int32Array(N),cnt=new Float64Array(256),touched=[],merged=0,p,k;
   for(p=0;p<N;p++){
     if(seen[p])continue;var v=idx[p],qh=0,qt=0;q[qt++]=p;seen[p]=1;
-    while(qh<qt){var c=q[qh++],cx=c%w;
-      for(k=0;k<4;k++){var n=k===0?(cx>0?c-1:-1):k===1?(cx<w-1?c+1:-1):k===2?c-w:c+w;
-        if(n<0||n>=N||seen[n]||idx[n]!==v)continue;seen[n]=1;q[qt++]=n;}}
+    while(qh<qt){var c=q[qh++],cx=c%w,cy=(c-cx)/w;
+      for(k=0;k<8;k++){var nx=cx+NB8X[k],ny=cy+NB8Y[k];if(nx<0||ny<0||nx>=w||ny>=h)continue;var n=ny*w+nx;
+        if(seen[n]||idx[n]!==v)continue;seen[n]=1;q[qt++]=n;}}
     if(v===255||qt>=minA)continue;
-    for(var t=0;t<qt;t++){var c2=q[t],x2=c2%w;
-      for(k=0;k<4;k++){var m=k===0?(x2>0?c2-1:-1):k===1?(x2<w-1?c2+1:-1):k===2?c2-w:c2+w;
-        if(m<0||m>=N)continue;var u=idx[m];if(u===v)continue;if(cnt[u]===0)touched.push(u);cnt[u]++;}}
+    var tr=0;
+    for(var t=0;t<qt;t++){var c2=q[t],x2=c2%w,y2=(c2-x2)/w;
+      for(k=0;k<4;k++){var mx=x2+NB8X[k],my=y2+NB8Y[k];if(mx<0||my<0||mx>=w||my>=h)continue;var u=idx[my*w+mx];if(u===v)continue;
+        if(u===255){tr++;continue;}if(cnt[u]===0)touched.push(u);cnt[u]++;}}
     var best=-1,bc=0;for(k=0;k<touched.length;k++){var u2=touched[k];if(cnt[u2]>bc){bc=cnt[u2];best=u2;}cnt[u2]=0;}touched.length=0;
+    if(best<0&&tr>0)best=255;
     if(best>=0){for(t=0;t<qt;t++)idx[q[t]]=best;merged++;}
   }
   return merged;
@@ -475,14 +490,17 @@ self.onmessage=function(e){
   var m=e.data,job=m.job,w=m.w,h=m.h,N=w*h,s=m.s,p,j;
   try{
   var data=new Uint8ClampedArray(m.buf);
-  // Pixelraster: Blöcke mitteln (nur deckende Pixel), Block ist deckend, wenn mindestens die Hälfte deckend ist
-  var grid=1;
-  if(s.pixel&&s.grid>0)grid=Math.max(1,Math.ceil(Math.max(w,h)/s.grid));
-  if(grid>1){var gw=Math.ceil(w/grid),gh=Math.ceil(h/grid),sm=new Uint8ClampedArray(gw*gh*4);
-    for(var gy=0;gy<gh;gy++){for(var gx=0;gx<gw;gx++){var sr=0,sg=0,sb=0,na=0,nt=0;
-      for(var yy=gy*grid;yy<Math.min(h,(gy+1)*grid);yy++){for(var xx=gx*grid;xx<Math.min(w,(gx+1)*grid);xx++){var oo=(yy*w+xx)*4;nt++;if(data[oo+3]>=128){sr+=data[oo];sg+=data[oo+1];sb+=data[oo+2];na++;}}}
+  // Pixelraster: Blöcke mitteln (nur deckende Pixel), Block ist deckend, wenn mindestens die Hälfte deckend ist.
+  // Die Blockgrenzen dürfen zwischen Pixeln liegen, so ergibt «128» genau 128 Pixel auf der längsten Seite.
+  // «Original» behält jedes Pixel, aber höchstens 512 auf der längsten Seite (sonst sprengt es den Speicher).
+  var grid=1,capped=false;
+  if(s.pixel){var tgt=s.grid>0?s.grid:512,mx0=Math.max(w,h);if(s.grid<=0&&mx0>512)capped=true;
+    if(mx0>tgt){var gw=Math.max(1,Math.round(w*tgt/mx0)),gh=Math.max(1,Math.round(h*tgt/mx0)),sm=new Uint8ClampedArray(gw*gh*4);grid=mx0/Math.max(gw,gh);
+    for(var gy=0;gy<gh;gy++){var y0=Math.floor(gy*h/gh),y1=Math.max(y0+1,Math.floor((gy+1)*h/gh));
+      for(var gx=0;gx<gw;gx++){var x0=Math.floor(gx*w/gw),x1=Math.max(x0+1,Math.floor((gx+1)*w/gw)),sr=0,sg=0,sb=0,na=0,nt=0;
+      for(var yy=y0;yy<y1;yy++){for(var xx=x0;xx<x1;xx++){var oo=(yy*w+xx)*4;nt++;if(data[oo+3]>=128){sr+=data[oo];sg+=data[oo+1];sb+=data[oo+2];na++;}}}
       var go=(gy*gw+gx)*4;if(na>0&&na*2>=nt){sm[go]=sr/na;sm[go+1]=sg/na;sm[go+2]=sb/na;sm[go+3]=255;}}}
-    data=sm;w=gw;h=gh;N=w*h;}
+    data=sm;w=gw;h=gh;N=w*h;}}
   var idx=new Uint8Array(N);var transparent=0;
   for(p=0;p<N;p++){if(data[p*4+3]<128){idx[p]=255;transparent++;}}
   prog(job,0.04,'Bild wird vorbereitet …');
@@ -516,7 +534,7 @@ self.onmessage=function(e){
       for(var k2 in act){if(!cur[k2])flush(k2,y);}
       if(y%32===0)prog(job,0.3+0.68*y/h,'Pixel werden gesetzt …');
     }
-    postMessage({job:job,type:'done',w:w,h:h,pix:true,grid:grid,palette:palette.map(function(c){return {r:c.r,g:c.g,b:c.b,n:c.n};}),ds:rects.map(function(a){return a.join('');}),paths:np,nodes:np*4,bg:bg,transparent:transparent,autoThr:autoThr,idx:idx.buffer},[idx.buffer]);
+    postMessage({job:job,type:'done',w:w,h:h,pix:true,grid:grid,capped:capped,palette:palette.map(function(c){return {r:c.r,g:c.g,b:c.b,n:c.n};}),ds:rects.map(function(a){return a.join('');}),paths:np,nodes:np*4,bg:bg,transparent:transparent,autoThr:autoThr,idx:idx.buffer},[idx.buffer]);
     return;
   }
   // ImageTracer-Indexraster
@@ -562,18 +580,21 @@ var PRESETS={
   foto:{mode:'color',count:64,smooth:1.2,speck:24,blur:2,corners:false,pixel:false,size:1600},
   pixel:{mode:'color',count:32,smooth:0.5,speck:0,blur:0,corners:true,pixel:true,grid:128}
 };
-var S={preset:'illu',mode:'color',count:24,thr:0,smooth:1,speck:8,blur:1,corners:true,seams:true,size:1600,bg:'keep',pixel:false,grid:128,bgTol:30,bgHoles:false,bgEdge:true,bgMethod:'edge',lastPreset:'illu'};
-var tapMode='pick',wandOps=[],cut=null,workId=0,aiCache={},aiCb={},aiN=0,aiPending=null,aiList=null;
+var S={preset:'illu',mode:'color',count:24,thr:0,smooth:1,speck:8,blur:1,corners:true,seams:true,size:1600,bg:'keep',pixel:false,grid:128,bgTol:30,bgHoles:false,bgHoleMin:5,bgEdge:true,bgMethod:'edge',bgAuto:true,lastPreset:'illu',pngSize:4000};
+var tapMode='pick',wandOps=[],cut=null,srcId=0,aiCache={},aiCb={},aiN=0,aiBusy={},aiList=null;
 try{var saved=JSON.parse(localStorage.getItem('vektorisierer.s')||'null');if(saved&&typeof saved==='object'){for(var k in S){if(k in saved)S[k]=saved[k];}}}catch(e){}
 S.thr=0;
 function persist(){try{localStorage.setItem('vektorisierer.s',JSON.stringify(S));}catch(e){}}
 
 // Worker aus den eingebetteten Quellen
-var worker=null;
-try{
-  var blob=new Blob([$('it-src').textContent,'\n',$('worker-src').textContent],{type:'text/javascript'});
-  worker=new Worker(URL.createObjectURL(blob));
-}catch(e){showToast('Dieser Browser kann den Rechenteil nicht starten.');}
+// Läuft noch ein alter Auftrag, wird der Rechenteil abgebrochen und neu gestartet (statt zu warten).
+var worker=null,workerUrl=null,workerBusy=false;
+function makeWorker(){
+  try{
+    if(!workerUrl)workerUrl=URL.createObjectURL(new Blob([$('it-src').textContent,'\n',$('worker-src').textContent],{type:'text/javascript'}));
+    worker=new Worker(workerUrl);worker.onmessage=onWorker;worker.onerror=function(){workerBusy=false;$('busy').hidden=true;showToast('Der Rechenteil ist abgestürzt. Versuche eine kleinere Arbeitsgrösse.');};
+  }catch(e){worker=null;showToast('Dieser Browser kann den Rechenteil nicht starten.');}
+}
 
 var src=null;        // {canvas, name}
 var work=null;       // {w,h,data:ImageData}
@@ -609,27 +630,51 @@ function sampleCanvas(){
 // ---------- Bild laden ----------
 function useCanvas(c,name,isSample){
   src={canvas:c,name:name||'bild'};zoom=1;syncZoomButtons();
-  $('srcnote').textContent=isSample?'Beispielbild geladen. Wähle oder ziehe dein eigenes Bild hinein, oder füge es mit Einfügen ein.':('Geladen: '+src.name+' ('+c.width+' × '+c.height+' px)');
+  srcId++;wandOps=[];aiCache={};layers=[];R=null;
+  $('srcnote').textContent=isSample?'Beispielbild geladen. Wähle oder ziehe dein eigenes Bild hinein, oder füge es mit Einfügen ein.':('Geladen: '+src.name+' ('+c.width+' × '+c.height+' px'+(src.reduced?', verkleinert von '+src.reduced:'')+')');
   prepareWork();run();
+}
+// Sehr grosse Bilder (z. B. 200 MP vom Handy) werden beim Öffnen auf höchstens 4000 px verkleinert.
+var MAXSRC=4000;
+function fitCanvas(img,W,H){
+  var f=Math.min(1,MAXSRC/Math.max(W,H)),w=Math.max(1,Math.round(W*f)),h=Math.max(1,Math.round(H*f)),c=document.createElement('canvas');
+  c.width=w;c.height=h;var g=c.getContext('2d');g.imageSmoothingQuality='high';g.drawImage(img,0,0,w,h);c._from=f<1?W+' × '+H:'';return c;
+}
+function openImage(url,name,blob,done){
+  var img=new Image();
+  img.onload=function(){
+    var W=img.naturalWidth,H=img.naturalHeight,f=MAXSRC/Math.max(W,H);
+    var fin=function(c){if(done)done();useCanvas(c,name,false);if(c._from){src.reduced=c._from;$('srcnote').textContent='Geladen: '+name+' ('+c.width+' × '+c.height+' px, verkleinert von '+c._from+')';}};
+    if(f<1&&blob&&window.createImageBitmap){
+      createImageBitmap(blob,{resizeWidth:Math.round(W*f),resizeHeight:Math.round(H*f),resizeQuality:'high'}).then(function(bm){
+        var c=document.createElement('canvas');c.width=bm.width;c.height=bm.height;c.getContext('2d').drawImage(bm,0,0);if(bm.close)bm.close();c._from=W+' × '+H;fin(c);
+      },function(){fin(fitCanvas(img,W,H));});
+    }else fin(fitCanvas(img,W,H));
+  };
+  img.onerror=function(){if(done)done();showToast('Das Bild liess sich nicht öffnen.');};
+  img.src=url;
 }
 function loadFile(f){
   if(!f||!/^image\//.test(f.type)){showToast('Das ist kein Bild. Unterstützt sind PNG, JPG, WebP, GIF und BMP.');return;}
-  var url=URL.createObjectURL(f),img=new Image();
-  img.onload=function(){var c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);URL.revokeObjectURL(url);useCanvas(c,f.name.replace(/\.[^.]+$/,''),false);};
-  img.onerror=function(){showToast('Das Bild liess sich nicht öffnen.');};
-  img.src=url;
+  var url=URL.createObjectURL(f);
+  openImage(url,f.name.replace(/\.[^.]+$/,''),f,function(){URL.revokeObjectURL(url);});
+}
+// Wenige Farben (Pixelart, Icons): beim Vergrössern nicht weichzeichnen, sonst entstehen Zwischentöne
+function fewColors(c){
+  try{var d=c.getContext('2d').getImageData(0,0,c.width,c.height).data,seen={},n=0;
+    for(var i=0;i<d.length;i+=4){if(d[i+3]<128)continue;var k=(d[i]<<16)|(d[i+1]<<8)|d[i+2];if(!seen[k]){seen[k]=1;if(++n>64)return false;}}return true;}catch(e){return false;}
 }
 function prepareWork(){
-  var c=src.canvas,W=c.width,H=c.height,maxS=Math.max(W,H),target=S.size||0,scale=1;
+  var c=src.canvas,W=c.width,H=c.height,maxS=Math.max(W,H),target=S.size||0,scale=1,crisp=!!S.pixel;
   if(S.pixel){scale=1;}
   else if(target&&maxS>target){scale=target/maxS;}
-  else if(maxS<500){scale=Math.min(1000/maxS,4);}
-  if(!target&&maxS>4000)scale=4000/maxS;
+  else if(maxS<500){scale=Math.min(1000/maxS,4);if(fewColors(c)){scale=Math.max(1,Math.floor(scale));crisp=true;}}
+  if(maxS*scale>4000)scale=4000/maxS;
   var w=Math.max(1,Math.round(W*scale)),h=Math.max(1,Math.round(H*scale));
   var wc=document.createElement('canvas');wc.width=w;wc.height=h;var g=wc.getContext('2d');
-  g.imageSmoothingEnabled=!S.pixel;g.imageSmoothingQuality='high';g.drawImage(c,0,0,w,h);
+  g.imageSmoothingEnabled=!crisp;g.imageSmoothingQuality='high';g.drawImage(c,0,0,w,h);
   work={w:w,h:h,canvas:wc,data:g.getImageData(0,0,w,h)};
-  wandOps=[];workId++;aiCache={};updateCut();
+  updateCut();
   $('box').classList.toggle('pixel',S.pixel);
   sizeBox();
 }
@@ -645,22 +690,43 @@ function sizeBox(){
 var runT=null;
 function run(delay){clearTimeout(runT);runT=setTimeout(go,delay||0);}
 function go(){
-  if(!work||!worker||aiPending)return;
-  jobId++;var buf=(cut?cut.data:work.data).data.slice().buffer;
+  if(!work)return;
+  var ai=aiMethod();if(ai&&!aiCache[ai+'|'+srcId])return; // erst die KI-Maske abwarten
+  if(workerBusy&&worker){worker.terminate();worker=null;}
+  if(!worker)makeWorker();if(!worker)return;
+  jobId++;var buf=(cut?cut.data:work.data).data.slice().buffer;workerBusy=true;
   $('busy').hidden=false;$('busybar').style.width='3%';$('busytxt').textContent='Bild wird vorbereitet …';
   worker.postMessage({job:jobId,w:work.w,h:work.h,buf:buf,s:{mode:S.mode,count:S.count,thr:S.thr,smooth:S.smooth,speck:S.speck,blur:S.blur,corners:S.corners,pixel:S.pixel,grid:S.grid}},[buf]);
 }
-if(worker)worker.onmessage=function(e){
+// Umfärben und Ausblenden bleiben erhalten, wenn neu gerechnet wird: jede neue Farbfläche übernimmt die Änderung,
+// wenn der Grossteil ihrer Pixel vorher zu einer geänderten Farbe gehörte (funktioniert auch von 8 auf 200 Farben und zurück).
+function inheritEdits(oldL,oldR,neu,newR){
+  if(!oldR||!oldL.length||!oldL.some(function(L){return L.cur!==L.orig||!L.on;}))return 0;
+  var key=oldL.map(function(L){return (L.cur!==L.orig||!L.on)?L.cur+'|'+(L.on?1:0):'';});
+  var W=newR.w,H=newR.h,step=Math.max(1,Math.round(Math.sqrt(W*H/300000))),tally=neu.map(function(){return {};}),tot=new Float64Array(neu.length),x,y;
+  for(y=0;y<H;y+=step){var oy=Math.min(oldR.h-1,Math.floor((y+0.5)*oldR.h/H))*oldR.w;
+    for(x=0;x<W;x+=step){var v=newR.idx[y*W+x];if(v===255)continue;var o=oldR.idx[oy+Math.min(oldR.w-1,Math.floor((x+0.5)*oldR.w/W))];if(o===255)continue;
+      tot[v]++;var k=key[o];tally[v][k]=(tally[v][k]||0)+1;}}
+  var n=0;
+  neu.forEach(function(L,i){var best='',bc=0,t=tally[i];for(var k in t){if(t[k]>bc){bc=t[k];best=k;}}
+    if(best&&bc>=tot[i]*0.5){var a=best.split('|');L.cur=a[0];L.on=a[1]==='1';n++;}});
+  return n;
+}
+function onWorker(e){
   var m=e.data;if(m.job!==jobId)return;
   if(m.type==='progress'){$('busybar').style.width=Math.round(m.p*100)+'%';$('busytxt').textContent=m.msg;return;}
-  $('busy').hidden=true;
+  workerBusy=false;$('busy').hidden=true;
   if(m.type==='error'){showToast('Fehler beim Nachzeichnen: '+m.msg);return;}
+  var old=layers,oldR=R;
   R=m;R.idx=new Uint8Array(m.idx);p2d=[];
   if(S.mode==='bw'&&!S.thr&&m.autoThr!=null){$('thr').value=m.autoThr;$('o-thr').textContent=m.autoThr;}
   layers=m.palette.map(function(c){var hx=hex(c);return {orig:hx,cur:hx,on:true,n:c.n};});
-  applyBg();sel=-1;
-  buildSvg();renderList();updateStats();
-};
+  var kept=inheritEdits(old,oldR,layers,R);
+  sel=-1;
+  buildSvg();renderList();updateStats(true);
+  if(kept)showToast('Deine Farbänderungen wurden übernommen ('+kept+(kept===1?' Farbe':' Farben')+').');
+  else if(m.capped)showToast('Pixel «Original» ist auf 512 px begrenzt, damit der Speicher reicht.');
+}
 function applyBg(){}
 // ---------- Hintergrund-Entferner ----------
 // 1. Randmodell: die häufigsten Farben am Bildrand (bis 4, so wird auch ein eingebranntes Schachbrett erkannt).
@@ -697,7 +763,7 @@ function computeMask(d,w,h){
       if(ok){mask[n]=1;q[qt++]=n;}}}
   var holes=0;
   if(S.bgHoles&&model.length){
-    var seen=new Uint8Array(N),minA=Math.max(30,N*0.008);
+    var seen=new Uint8Array(N),minA=Math.max(12,N*(S.bgHoleMin||0)/10000);
     for(p=0;p<N;p++){if(mask[p]||seen[p]||d[p*4+3]<128||near(p*4)>=tol)continue;
       qh=0;qt=0;q[qt++]=p;seen[p]=1;
       while(qh<qt){var c0=q[qh++],cx=c0%w;
@@ -714,7 +780,7 @@ function computeMask(d,w,h){
   return {mask:mask,model:model,holes:holes};
 }
 function applyWand(d,w,h,mask,op){
-  var N=w*h,p=op.y*w+op.x,i=p*4,tol=S.bgTol,r=d[i],g=d[i+1],b=d[i+2],cutting=op.t==='cut';
+  var N=w*h,p=Math.min(h-1,Math.floor(op.fy*h))*w+Math.min(w-1,Math.floor(op.fx*w)),i=p*4,tol=S.bgTol,r=d[i],g=d[i+1],b=d[i+2],cutting=op.t==='cut';
   if(cutting?mask[p]:(!mask[p]||d[i+3]<128))return 0;
   var q=new Int32Array(N),qh=0,qt=0,n=0;q[qt++]=p;mask[p]=cutting?1:0;
   while(qh<qt){var c=q[qh++],cx=c%w;n++;
@@ -724,14 +790,15 @@ function applyWand(d,w,h,mask,op){
   return n;
 }
 function hx2(c){return '#'+[c.r,c.g,c.b].map(function(v){return ('0'+Math.round(v).toString(16)).slice(-2);}).join('').toUpperCase();}
-function setOrg(c){$('orgimg').src=c.toDataURL('image/png');}
+var orgUrl=null,orgJob=0;
+function setOrg(c){var my=++orgJob;c.toBlob(function(b){if(!b||my!==orgJob)return;var u=URL.createObjectURL(b);$('orgimg').src=u;if(orgUrl)URL.revokeObjectURL(orgUrl);orgUrl=u;},'image/png');}
 function updateCut(){
   if(!work)return;var w=work.w,h=work.h,N=w*h,d=work.data.data;
   if(S.bg!=='remove'){cut=null;setOrg(work.canvas);$('bghint').textContent='Erkennt den Hintergrund vom Rand her und stellt das Motiv frei.';syncControls();return;}
   var res,mask,ai=aiMethod();
-  if(ai){var key=ai+'|'+workId;
+  if(ai){var key=ai+'|'+srcId;
     if(!aiCache[key]){requestAi(ai,key);cut=null;setOrg(work.canvas);$('bghint').textContent='KI stellt frei …';syncControls();return;}
-    mask=aiCache[key].mask.slice();for(var q=0;q<N;q++){if(d[q*4+3]<128)mask[q]=1;}
+    mask=aiMask(aiCache[key],w,h);for(var q=0;q<N;q++){if(d[q*4+3]<128)mask[q]=1;}
     res={mask:mask,model:[],holes:0,ai:aiCache[key]};}
   else{res=computeMask(d,w,h);mask=res.mask;}
   wandOps.forEach(function(op){applyWand(d,w,h,mask,op);});
@@ -740,7 +807,7 @@ function updateCut(){
   cut={data:out,mask:mask};
   var c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').putImageData(out,0,0);setOrg(c);
   var pct=opaque?Math.round(removed/opaque*100):0,hint;
-  if(res.ai){hint='KI '+res.ai.label+' hat '+pct+' % als Hintergrund erkannt ('+(res.ai.ms/1000).toFixed(1)+' s). Feinschliff mit «Wegnehmen» und «Zurückholen».';}
+  if(res.ai){hint='KI '+res.ai.label+(S.bgAuto?' (passend zum Stil gewählt)':'')+' hat '+pct+' % als Hintergrund erkannt ('+(res.ai.ms/1000).toFixed(1)+' s). Feinschliff mit «Wegnehmen» und «Zurückholen».';}
   else if(res.model.length){hint='Hintergrund erkannt: '+res.model.map(hx2).join(', ')+(res.model.length>1?' (mehrere Töne, z. B. Schachbrett oder Verlauf)':'')+'. '+pct+' % der Fläche entfernt'+(res.holes?', davon '+res.holes+(res.holes===1?' eingeschlossene Lücke':' eingeschlossene Lücken'):'')+'.';}
   else if(opaque<N){hint='Das Bild ist schon freigestellt. Mit «Wegnehmen» entfernst du weitere Flächen per Tipp.';}
   else{hint='Am Rand ist kein eindeutiger Hintergrund. Wähle «Wegnehmen» und tippe auf den Hintergrund.';}
@@ -751,51 +818,69 @@ function updateCut(){
 function aiModels(){if(aiList===null){aiList=[];try{if(window.VkApp&&window.VkApp.aiModels)aiList=JSON.parse(window.VkApp.aiModels()||'[]')||[];}catch(e){aiList=[];}}return aiList;}
 function aiAvailable(k){return aiModels().some(function(m){return m.key===k;});}
 function aiMethod(){return (S.bg==='remove'&&S.bgMethod!=='edge'&&aiAvailable(S.bgMethod))?S.bgMethod:null;}
+// Passendes KI-Modell zum Stil: Fotos und Haare mit U²-Net, gezeichnete Motive mit ISNet-Anime
+function aiForPreset(p){return (p==='illu'||p==='logo'||p==='pixel')?'zeichnung':'foto';}
+function autoMethod(){if(S.bgAuto&&S.bg==='remove'&&aiModels().length){var k=aiForPreset(S.preset);if(aiAvailable(k))S.bgMethod=k;}}
 function requestAi(model,key){
-  if(aiPending===key)return;aiPending=key;
+  if(aiBusy[key])return;aiBusy[key]=1;
   $('busy').hidden=false;$('busybar').style.width='35%';$('busytxt').textContent='KI stellt frei … (beim ersten Mal lädt das Modell ein paar Sekunden)';
-  var w=work.w,h=work.h,f=Math.min(1,1024/Math.max(w,h)),c=document.createElement('canvas');
-  c.width=Math.max(1,Math.round(w*f));c.height=Math.max(1,Math.round(h*f));var g=c.getContext('2d');
-  g.fillStyle='#ffffff';g.fillRect(0,0,c.width,c.height);g.imageSmoothingQuality='high';g.drawImage(work.canvas,0,0,c.width,c.height);
-  var id='a'+(++aiN);aiCb[id]={key:key,workId:workId};
+  var sc=src.canvas,f=Math.min(1,1024/Math.max(sc.width,sc.height)),c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(sc.width*f));c.height=Math.max(1,Math.round(sc.height*f));var g=c.getContext('2d');
+  g.fillStyle='#ffffff';g.fillRect(0,0,c.width,c.height);g.imageSmoothingQuality='high';g.drawImage(sc,0,0,c.width,c.height);
+  var id='a'+(++aiN);aiCb[id]={key:key,model:model};
   try{window.VkApp.segment(model,c.toDataURL('image/jpeg',0.92).split(',')[1],id);}
-  catch(e){delete aiCb[id];aiFailed('Die KI liess sich nicht starten.');}
+  catch(e){delete aiCb[id];delete aiBusy[key];aiFailed('Die KI liess sich nicht starten.');}
 }
-function aiFailed(msg){aiPending=null;$('busy').hidden=true;showToast(msg+' Ich nehme die Rand-Erkennung.');S.bgMethod='edge';persist();syncControls();updateCut();run(0);}
+function aiMask(entry,w,h){
+  var k=w+'x'+h;if(entry.sizes[k])return entry.sizes[k].slice();
+  var c=document.createElement('canvas');c.width=w;c.height=h;var g=c.getContext('2d');
+  g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(entry.img,0,0,w,h);
+  var px=g.getImageData(0,0,w,h).data,N=w*h,mask=new Uint8Array(N);
+  for(var p=0;p<N;p++)mask[p]=px[p*4]<128?1:0;
+  entry.sizes={};entry.sizes[k]=mask;return mask.slice();
+}
+function aiFailed(msg){$('busy').hidden=true;showToast(msg+' Ich nehme die Rand-Erkennung.');S.bgMethod='edge';S.bgAuto=false;persist();syncControls();updateCut();run(0);}
 window.__vkSeg=function(id,ok,payload,ms,label){
-  var r=aiCb[id];delete aiCb[id];if(!r)return;
-  if(!ok){aiFailed('KI-Freistellung ging nicht ('+payload+').');return;}
-  if(r.workId!==workId){aiPending=null;$('busy').hidden=true;updateCut();run(0);return;}
+  var r=aiCb[id];delete aiCb[id];if(!r)return;delete aiBusy[r.key];
+  if(!ok){if(r.key===(aiMethod()||'')+'|'+srcId)aiFailed('KI-Freistellung ging nicht ('+payload+').');return;}
   var img=new Image();
   img.onload=function(){
-    var w=work.w,h=work.h,c=document.createElement('canvas');c.width=w;c.height=h;var g=c.getContext('2d');
-    g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(img,0,0,w,h);
-    var px=g.getImageData(0,0,w,h).data,N=w*h,mask=new Uint8Array(N);
-    for(var p=0;p<N;p++)mask[p]=px[p*4]<128?1:0;
-    aiCache[r.key]={mask:mask,label:label||'',ms:ms||0};aiPending=null;$('busy').hidden=true;updateCut();run(0);
+    aiCache[r.key]={img:img,label:label||'',ms:ms||0,sizes:{}};
+    if(r.key.split('|')[1]!=String(srcId))return; // altes Bild: nur merken
+    $('busy').hidden=true;updateCut();run(0);
   };
   img.onerror=function(){aiFailed('Die KI-Maske war unlesbar.');};
   img.src='data:image/png;base64,'+payload;
 };
-function wandTap(x,y,t){
-  var before=wandOps.length;wandOps.push({x:x,y:y,t:t});
+function wandTap(fx,fy,t){
+  var op={fx:fx,fy:fy,t:t};wandOps.push(op);
   var m=cut?cut.mask.slice():null;
-  if(m&&applyWand(work.data.data,work.w,work.h,m,{x:x,y:y,t:t})===0){wandOps.pop();showToast(t==='cut'?'Diese Stelle ist schon weg.':'Diese Stelle ist nicht entfernt.');return;}
+  if(m&&applyWand(work.data.data,work.w,work.h,m,op)===0){wandOps.pop();showToast(t==='cut'?'Diese Stelle ist schon weg.':'Diese Stelle ist nicht entfernt.');return;}
   updateCut();run(0);
 }
 
 // ---------- SVG ----------
+// Nahtlos in jedem Programm: unter den Farbflächen liegt eine Unterlage aus denselben Formen mit 2.5 px Rand
+// in ihrer eigenen Farbe (als <use>, also ohne doppelte Pfaddaten). So scheinen in Illustrator, Affinity,
+// Inkscape und beim Drucker keine Haarlinien und Nadelstiche durch. Die sichtbaren Flächen selbst haben keinen
+// Rand: wer in Illustrator umfärbt, ändert nur die Füllung. Wer die Unterlage nicht will, löscht die Gruppe.
 function svgString(forExport){
-  var w=R.w,h=R.h,sc=R.pix?R.grid:1;
-  var out=['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+w+' '+h+'" width="'+(w*sc)+'" height="'+(h*sc)+'"'+(R.pix?' shape-rendering="crispEdges"':'')+'>'];
-  layers.forEach(function(L,i){
-    if(!L.on||!R.ds[i])return;
-    var id='farbe-'+String(i+1).padStart(3,'0')+'_'+L.cur.slice(1);
-    var stroke=(S.seams&&!R.pix)?' stroke="'+L.cur+'" stroke-width="1" stroke-linejoin="round"':'';
-    out.push('<path id="'+id+'" fill="'+L.cur+'"'+stroke+' d="'+R.ds[i]+'"/>');
-  });
-  out.push('</svg>');return out.join(forExport?'\n':'');
+  var w=R.w,h=R.h,sc=R.pix?R.grid:1,nl=forExport?'\n':'',vis=[];
+  layers.forEach(function(L,i){if(L.on&&R.ds[i])vis.push(i);});
+  var idOf=function(i){return 'farbe-'+String(i+1).padStart(3,'0')+'_'+layers[i].cur.slice(1);};
+  var out=['<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 '+w+' '+h+'" width="'+Math.round(w*sc)+'" height="'+Math.round(h*sc)+'"'+(R.pix?' shape-rendering="crispEdges"':'')+'>'];
+  if(S.seams&&!R.pix&&vis.length){
+    out.push('<g id="naht-unterlage" stroke-width="2.5" stroke-linejoin="round">');
+    vis.forEach(function(i){var id=idOf(i),c=layers[i].cur;out.push('<use href="#'+id+'" xlink:href="#'+id+'" stroke="'+c+'"/>');});
+    out.push('</g>');
+  }
+  out.push('<g id="farben">');
+  vis.forEach(function(i){out.push('<path id="'+idOf(i)+'" fill="'+layers[i].cur+'" d="'+R.ds[i]+'"/>');});
+  out.push('</g>');
+  out.push('</svg>');return out.join(nl);
 }
+// Grösse der SVG schätzen, ohne sie zu bauen (schnell, auch beim Umfärben)
+function svgKB(){var n=260;layers.forEach(function(L,i){if(L.on&&R.ds[i])n+=R.ds[i].length+70+(S.seams&&!R.pix?110:0);});return n/1024;}
 // Die Vorschau wird als Rasterbild gezeichnet, genau wie das Original.
 // So färbt kein automatischer Dunkelmodus (Chrome, Samsung) die Vektorflächen anders als das Original.
 var prevT=null,prevUrl=null,prevJob=0;
@@ -820,11 +905,10 @@ function rasterize(f){
   var g=c.getContext('2d');g.setTransform(c.width/R.w,0,0,c.height/R.h,0,0);g.lineJoin='round';g.lineWidth=1;
   if(R.pix){layers.forEach(function(L,i){if(!L.on||!R.ds[i])return;g.fillStyle=L.cur;g.fill(pathOf(i));});return c;}
   if(S.seams){
-    // Unterlage: gleiche Flächen mit dickerem Rand, füllt die Nadelstiche, wo drei Farben zusammenstossen
-    g.lineWidth=1.6;layers.forEach(function(L,i){if(!L.on||!R.ds[i])return;var p=pathOf(i);g.fillStyle=L.cur;g.strokeStyle=L.cur;g.fill(p);g.stroke(p);});
-    g.lineWidth=1;
+    // Unterlage wie in der SVG: gleiche Formen mit 2.5 px Rand, füllt Haarlinien und Nadelstiche
+    g.lineWidth=2.5;layers.forEach(function(L,i){if(!L.on||!R.ds[i])return;var p=pathOf(i);g.strokeStyle=L.cur;g.stroke(p);});
   }
-  layers.forEach(function(L,i){if(!L.on||!R.ds[i])return;var p=pathOf(i);g.fillStyle=L.cur;g.fill(p);if(S.seams){g.strokeStyle=L.cur;g.stroke(p);}});
+  layers.forEach(function(L,i){if(!L.on||!R.ds[i])return;g.fillStyle=L.cur;g.fill(pathOf(i));});
   if(S.seams)seal(c,g);
   return c;
 }
@@ -913,7 +997,7 @@ function tapAt(cx,cy){
   if(!R)return;var r=$('box').getBoundingClientRect();
   var x=Math.floor((cx-r.left)/r.width*R.w),y=Math.floor((cy-r.top)/r.height*R.h);
   if(x<0||y<0||x>=R.w||y>=R.h)return;
-  if(tapMode!=='pick'){wandTap(Math.min(work.w-1,Math.floor((cx-r.left)/r.width*work.w)),Math.min(work.h-1,Math.floor((cy-r.top)/r.height*work.h)),tapMode);return;}
+  if(tapMode!=='pick'){wandTap((cx-r.left)/r.width,(cy-r.top)/r.height,tapMode);return;}
   var v=R.idx[y*R.w+x];
   if(v===255){showToast('Hier ist das Bild transparent.');return;}
   selectLayer(v,true);
@@ -954,14 +1038,15 @@ $('allon').onclick=function(){layers.forEach(function(L,i){L.on=true;paintLayer(
 $('resetcol').onclick=function(){layers.forEach(function(L,i){L.cur=L.orig;paintLayer(i);});renderList();updateStatsSoon();};
 
 // ---------- Kennzahlen + Formtreue ----------
-var statT=null;function updateStatsSoon(){clearTimeout(statT);statT=setTimeout(updateStats,250);}
-function updateStats(){
-  if(!R)return;var vis=layers.filter(function(L){return L.on;}).length;
-  var str=svgString(true),kb=new Blob([str]).size/1024;
+var statT=null;function updateStatsSoon(){clearTimeout(statT);statT=setTimeout(function(){updateStats(false);},250);}
+// full=true nach dem Nachzeichnen (mit Formtreue), sonst nur die schnellen Zahlen
+function updateStats(full){
+  if(!R)return;var vis=layers.filter(function(L){return L.on;}).length,kb=svgKB();
   $('s-col').textContent=vis+(vis<layers.length?' / '+layers.length:'');
   $('s-path').textContent=R.paths.toLocaleString('de-CH');
   $('s-node').textContent=R.nodes.toLocaleString('de-CH');
-  $('s-kb').textContent=kb>1024?(kb/1024).toFixed(1)+' MB':Math.round(kb)+' KB';
+  $('s-kb').textContent='≈ '+(kb>1024?(kb/1024).toFixed(1)+' MB':Math.round(kb)+' KB');
+  if(!full)return;
   $('s-form').textContent='…';
   setTimeout(function(){
     var g=rasterize(1).getContext('2d');
@@ -982,12 +1067,7 @@ function updateStats(){
 var appCb={},appN=0,inApp=!!(window.VkApp&&window.VkApp.save);
 window.__vkSaved=function(id,ok,where){var f=appCb[id];delete appCb[id];if(f)f(ok,where);};
 window.vkAppToast=function(t){showToast(t);};
-window.vkOpenShared=function(url,name){
-  var img=new Image();
-  img.onload=function(){var c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);useCanvas(c,name||'geteilt',false);};
-  img.onerror=function(){showToast('Das geteilte Bild liess sich nicht öffnen.');};
-  img.src=url;
-};
+window.vkOpenShared=function(url,name){openImage(url,name||'geteilt',null,null);};
 function bytesToB64(u8){var s='',CH=0x8000;for(var i=0;i<u8.length;i+=CH)s+=String.fromCharCode.apply(null,u8.subarray(i,i+CH));return btoa(s);}
 function appSave(name,data,mime){
   var p=typeof data==='string'?Promise.resolve(new TextEncoder().encode(data)):data.arrayBuffer().then(function(b){return new Uint8Array(b);});
@@ -1006,12 +1086,18 @@ async function saveFile(name,data,mime){
   catch(e){showToast('Speichern ging hier nicht. Nutze «SVG kopieren».');}
 }
 $('save').onclick=$('save2').onclick=function(){if(!R)return;saveFile((src?src.name:'vektor')+'.svg',svgString(true),'image/svg+xml');};
+// PNG in Druckgrösse: längste Seite wie gewählt (Pixelart in ganzen Vielfachen, damit die Pixel scharf bleiben)
 $('savepng').onclick=function(){
-  if(!R)return;var f=R.pix?Math.max(1,Math.min(Math.floor(4096/Math.max(R.w,R.h)),Math.round(2000/Math.max(R.w,R.h)))):Math.max(1,Math.min(4,Math.ceil(2000/Math.max(R.w,R.h))));
-  rasterize(f).toBlob(function(b){if(b)saveFile((src?src.name:'vektor')+'.png',b,'image/png');},'image/png');
+  if(!R)return;var m=Math.max(R.w,R.h),t=S.pngSize||4000,f=R.pix?Math.max(1,Math.round(t/m)):t/m;
+  if(Math.max(R.w,R.h)*f>8000)f=8000/m;
+  $('busy').hidden=false;$('busybar').style.width='60%';$('busytxt').textContent='PNG wird gerechnet …';
+  setTimeout(function(){var c;try{c=rasterize(f);}catch(e){$('busy').hidden=true;showToast('Zu gross für den Speicher. Wähle eine kleinere PNG-Grösse.');return;}
+    c.toBlob(function(b){$('busy').hidden=true;if(b)saveFile((src?src.name:'vektor')+'-'+c.width+'px.png',b,'image/png');else showToast('Zu gross für den Speicher. Wähle eine kleinere PNG-Grösse.');},'image/png');},30);
 };
+Array.prototype.forEach.call($('pngchips').querySelectorAll('button'),function(b){b.onclick=function(){S.pngSize=+b.dataset.px;persist();syncControls();};});
 $('copy').onclick=function(){
   if(!R)return;var s=svgString(true),ta=$('fallback');
+  if(s.length>1500000){showToast('Die SVG ist '+(s.length/1048576).toFixed(1)+' MB gross, zu viel zum Kopieren. Nutze «SVG speichern».');return;}
   if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(s).then(function(){showToast('SVG-Code kopiert');},function(){ta.value=s;ta.hidden=false;ta.select();showToast('Code unten markiert, jetzt kopieren');});}
   else{ta.value=s;ta.hidden=false;ta.select();showToast('Code unten markiert, jetzt kopieren');}
 };
@@ -1035,19 +1121,21 @@ function syncControls(){
   $('qbg').checked=S.bg==='remove';$('qpix').checked=!!S.pixel;$('qaiwrap').hidden=!av.length;$('qainote').hidden=!!av.length;
   Array.prototype.forEach.call($('qai').querySelectorAll('button'),function(b){var k=b.dataset.ai;b.hidden=k!=='off'&&!aiAvailable(k);b.setAttribute('aria-pressed',k===(aiMethod()||'off'));});
   Array.prototype.forEach.call($('bgmethod').querySelectorAll('button'),function(b){var k=b.dataset.me;b.hidden=k!=='edge'&&!aiAvailable(k);b.setAttribute('aria-pressed',k===(aiMethod()||'edge'));});
-  $('bgopts').hidden=S.bg!=='remove'||!!aiMethod();$('bgtol').value=S.bgTol;$('o-bgtol').textContent=S.bgTol;$('bgholes').checked=S.bgHoles;$('bgedge').checked=S.bgEdge;
+  $('bgopts').hidden=S.bg!=='remove'||!!aiMethod();$('bgtol').value=S.bgTol;$('o-bgtol').textContent=S.bgTol;$('bgholes').checked=S.bgHoles;$('bgedge').checked=S.bgEdge;$('f-holemin').hidden=!S.bgHoles;$('holemin').value=S.bgHoleMin;$('o-holemin').textContent=fmtHole(S.bgHoleMin);
+  Array.prototype.forEach.call($('pngchips').querySelectorAll('button'),function(b){b.setAttribute('aria-pressed',+b.dataset.px===S.pngSize);});
   Array.prototype.forEach.call($('tapseg').querySelectorAll('button'),function(b){b.setAttribute('aria-pressed',b.dataset.t===tapMode);});
   $('wandrow').hidden=!(S.bg==='remove'&&wandOps.length);
   $('box').style.cursor=tapMode==='pick'?'crosshair':'cell';
 }
+function fmtHole(v){return v<=0?'jede':(v/100).toFixed(v<10?2:1)+' %';}
 function changed(prepare,delay){persist();syncControls();if(prepare&&src)prepareWork();run(delay==null?350:delay);}
-function applyPreset(name){var P=PRESETS[name];if(!P)return;S.preset=name;if(name!=='pixel')S.lastPreset=name;for(var k in P)S[k]=P[k];changed(true,0);}
+function applyPreset(name){var P=PRESETS[name];if(!P)return;var was=aiMethod();S.preset=name;if(name!=='pixel')S.lastPreset=name;for(var k in P)S[k]=P[k];autoMethod();persist();syncControls();if(src){prepareWork();if(aiMethod()!==was)updateCut();}run(0);}
 Array.prototype.forEach.call(document.querySelectorAll('.presets button'),function(b){b.onclick=function(){applyPreset(b.dataset.p);};});
 // Schnellschalter
-$('qbg').onchange=function(){S.bg=this.checked?'remove':'keep';persist();syncControls();if(work){updateCut();run(0);}};
+$('qbg').onchange=function(){S.bg=this.checked?'remove':'keep';autoMethod();persist();syncControls();if(work){updateCut();run(0);}};
 $('qpix').onchange=function(){applyPreset(this.checked?'pixel':(S.lastPreset||'illu'));};
 Array.prototype.forEach.call($('qai').querySelectorAll('button'),function(b){b.onclick=function(){
-  var k=b.dataset.ai;if(k==='off'){S.bgMethod='edge';}else{S.bgMethod=k;S.bg='remove';}
+  var k=b.dataset.ai;S.bgAuto=false;if(k==='off'){S.bgMethod='edge';}else{S.bgMethod=k;S.bg='remove';}
   persist();syncControls();if(work){updateCut();run(0);}};});
 // Bereiche (Daumenleiste)
 function showTab(t){
@@ -1060,16 +1148,17 @@ Array.prototype.forEach.call($('tabs').querySelectorAll('button'),function(b){b.
 // Bühne folgt ihrer Grösse (Drehen, Fenster, Desktop)
 if(window.ResizeObserver){var roT=null;new ResizeObserver(function(){clearTimeout(roT);roT=setTimeout(function(){sizeBox();refreshPreview(0);},120);}).observe($('zoomer'));}
 Array.prototype.forEach.call($('modeseg').querySelectorAll('button'),function(b){b.onclick=function(){S.mode=b.dataset.m;S.thr=0;changed(false,0);};});
-Array.prototype.forEach.call($('bgseg').querySelectorAll('button'),function(b){b.onclick=function(){S.bg=b.dataset.bg;persist();syncControls();if(work){updateCut();run(0);}};});
+Array.prototype.forEach.call($('bgseg').querySelectorAll('button'),function(b){b.onclick=function(){S.bg=b.dataset.bg;autoMethod();persist();syncControls();if(work){updateCut();run(0);}};});
 $('bgtol').oninput=function(){S.bgTol=+this.value;$('o-bgtol').textContent=S.bgTol;persist();clearTimeout(cutT);cutT=setTimeout(function(){updateCut();run(0);},300);};
 var cutT=null;
 $('bgholes').onchange=function(){S.bgHoles=this.checked;persist();updateCut();run(0);};
 $('bgedge').onchange=function(){S.bgEdge=this.checked;persist();updateCut();run(0);};
+$('holemin').oninput=function(){S.bgHoleMin=+this.value;$('o-holemin').textContent=fmtHole(S.bgHoleMin);persist();clearTimeout(cutT);cutT=setTimeout(function(){updateCut();run(0);},300);};
 Array.prototype.forEach.call($('tapseg').querySelectorAll('button'),function(b){b.onclick=function(){tapMode=b.dataset.t;syncControls();
   if(tapMode!=='pick'&&S.bg!=='remove'){S.bg='remove';persist();syncControls();updateCut();run(0);}
   showToast(tapMode==='pick'?'Tippen findet die Farbe in den Ebenen':(tapMode==='cut'?'Tippe auf eine Fläche, die weg soll':'Tippe auf eine Fläche, die bleiben soll'));};});
 Array.prototype.forEach.call($('gridchips').querySelectorAll('button'),function(b){b.onclick=function(){S.grid=+b.dataset.g;changed(false,0);};});
-Array.prototype.forEach.call($('bgmethod').querySelectorAll('button'),function(b){b.onclick=function(){S.bgMethod=b.dataset.me;persist();syncControls();updateCut();run(0);};});
+Array.prototype.forEach.call($('bgmethod').querySelectorAll('button'),function(b){b.onclick=function(){S.bgMethod=b.dataset.me;S.bgAuto=false;persist();syncControls();updateCut();run(0);};});
 $('wandundo').onclick=function(){if(wandOps.length){wandOps.pop();updateCut();run(0);}};
 $('wandclear').onclick=function(){if(wandOps.length){wandOps=[];updateCut();run(0);}};
 Array.prototype.forEach.call($('sizechips').querySelectorAll('button'),function(b){b.onclick=function(){S.size=+b.dataset.s;changed(true,0);};});
@@ -1080,7 +1169,7 @@ $('smooth').oninput=function(){S.smooth=+this.value;$('o-smooth').textContent=S.
 $('speck').oninput=function(){S.speck=+this.value;$('o-speck').textContent=S.speck;persist();run(400);};
 $('blur').oninput=function(){S.blur=+this.value;$('o-blur').textContent=S.blur;persist();run(400);};
 $('corners').onchange=function(){S.corners=this.checked;changed(false,0);};
-$('seams').onchange=function(){S.seams=this.checked;persist();if(R){buildSvg();updateStatsSoon();}};
+$('seams').onchange=function(){S.seams=this.checked;persist();if(R){buildSvg();updateStats(true);}};
 
 // ---------- Datei, Ziehen, Einfügen ----------
 $('file').onchange=function(){if(this.files&&this.files[0])loadFile(this.files[0]);this.value='';};
@@ -1091,6 +1180,7 @@ stage.addEventListener('dragleave',function(){dragN--;if(dragN<=0){dragN=0;$('dr
 stage.addEventListener('drop',function(e){e.preventDefault();dragN=0;$('drop').hidden=true;var f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];if(f)loadFile(f);});
 window.addEventListener('paste',function(e){var items=(e.clipboardData&&e.clipboardData.items)||[];for(var i=0;i<items.length;i++){if(items[i].type.indexOf('image/')===0){loadFile(items[i].getAsFile());e.preventDefault();return;}}});
 
+makeWorker();
 syncControls();
 useCanvas(sampleCanvas(),'beispiel',true);
 })();

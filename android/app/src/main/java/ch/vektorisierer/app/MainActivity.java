@@ -6,6 +6,8 @@ import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.database.Cursor;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Insets;
 import android.net.Uri;
 import android.os.Build;
@@ -18,6 +20,9 @@ import android.view.View;
 import android.view.WindowInsets;
 import android.widget.FrameLayout;
 import android.webkit.JavascriptInterface;
+import android.webkit.RenderProcessGoneDetail;
+import android.widget.Toast;
+import android.window.OnBackInvokedDispatcher;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -42,7 +47,11 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
 
     private static final int PICK_IMAGE = 1;
-    private static final long MAX_SHARE_BYTES = 60L * 1024 * 1024;
+    private static final long MAX_SHARE_BYTES = 120L * 1024 * 1024;
+    /** Grössere Bilder werden vor der Übergabe an die Seite verkleinert (Speicher, Übergabe als Text). */
+    private static final int MAX_SIDE = 4000;
+    private static final long PASS_THROUGH_BYTES = 12L * 1024 * 1024;
+    private long lastBack = 0;
 
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
@@ -54,9 +63,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        FrameLayout root = new FrameLayout(this);
-        web = new WebView(this);
-        root.addView(web, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        root = new FrameLayout(this);
         setContentView(root);
 
         // Ab Android 15 zeichnet die App unter Status- und Navigationsleiste: Abstand selbst setzen
@@ -68,6 +75,38 @@ public class MainActivity extends Activity {
             });
         }
 
+        segmenter = new Segmenter(this);
+        createWebView();
+        handleIntent(getIntent());
+
+        // Zurück: erst nach zweimaligem Wischen beenden, damit die Arbeit nicht aus Versehen verloren geht
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::backPressed);
+        }
+    }
+
+    private FrameLayout root;
+
+    @SuppressWarnings("deprecation")
+    @Override
+    public void onBackPressed() {
+        backPressed();
+    }
+
+    private void backPressed() {
+        long now = System.currentTimeMillis();
+        if (now - lastBack < 2000) {
+            finish();
+        } else {
+            lastBack = now;
+            Toast.makeText(this, "Nochmals zurück zum Beenden", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void createWebView() {
+        pageReady = false;
+        web = new WebView(this);
+        root.addView(web, new FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -83,7 +122,6 @@ public class MainActivity extends Activity {
             s.setAlgorithmicDarkeningAllowed(false);
         }
 
-        segmenter = new Segmenter(this);
         web.addJavascriptInterface(new Bridge(), "VkApp");
 
         web.setWebChromeClient(new WebChromeClient() {
@@ -119,10 +157,21 @@ public class MainActivity extends Activity {
                 pageReady = true;
                 deliverShare();
             }
+
+            /** Stürzt die Seite ab (z. B. zu wenig Speicher), startet sie neu statt die ganze App zu beenden. */
+            @Override
+            public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                if (view != web) return true;
+                root.removeView(web);
+                web.destroy();
+                web = null;
+                createWebView();
+                Toast.makeText(MainActivity.this, "Das Bild war zu gross für den Speicher. Die App wurde neu geladen.", Toast.LENGTH_LONG).show();
+                return true;
+            }
         });
 
         web.loadUrl("file:///android_asset/index.html");
-        handleIntent(getIntent());
     }
 
     @Override
@@ -179,14 +228,50 @@ public class MainActivity extends Activity {
                 String mime = cr.getType(uri);
                 if (mime == null || !mime.startsWith("image/")) mime = "image/png";
                 byte[] bytes = readAll(cr.openInputStream(uri));
+                byte[][] box = {bytes};
+                mime = shrinkIfLarge(box, mime);
+                bytes = box[0];
                 String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+                bytes = null;
                 js = "window.vkOpenShared&&window.vkOpenShared('data:" + mime + ";base64," + b64 + "'," + jsString(displayName(uri)) + ")";
+            } catch (OutOfMemoryError e) {
+                js = "window.vkAppToast&&window.vkAppToast(" + jsString("Das geteilte Bild ist zu gross für den Speicher.") + ")";
             } catch (Exception e) {
                 js = "window.vkAppToast&&window.vkAppToast(" + jsString("Das geteilte Bild liess sich nicht öffnen.") + ")";
             }
             final String script = js;
-            runOnUiThread(() -> web.evaluateJavascript(script, null));
+            runOnUiThread(() -> { if (web != null) web.evaluateJavascript(script, null); });
         }).start();
+    }
+
+    /** Verkleinert sehr grosse Bilder auf höchstens MAX_SIDE (PNG bei Transparenz, sonst JPEG 95). */
+    private static String shrinkIfLarge(byte[][] box, String mime) {
+        byte[] bytes = box[0];
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+        int w = o.outWidth, h = o.outHeight;
+        if (w <= 0 || h <= 0) return mime; // unbekanntes Format: die Seite versucht es selbst
+        int side = Math.max(w, h);
+        if (side <= MAX_SIDE && bytes.length <= PASS_THROUGH_BYTES) return mime;
+        int sample = 1;
+        while (side / (sample * 2) >= MAX_SIDE) sample *= 2;
+        BitmapFactory.Options d = new BitmapFactory.Options();
+        d.inSampleSize = sample;
+        Bitmap b = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, d);
+        if (b == null) return mime;
+        float f = Math.min(1f, MAX_SIDE / (float) Math.max(b.getWidth(), b.getHeight()));
+        if (f < 1f) {
+            Bitmap s = Bitmap.createScaledBitmap(b, Math.max(1, Math.round(b.getWidth() * f)), Math.max(1, Math.round(b.getHeight() * f)), true);
+            if (s != b) b.recycle();
+            b = s;
+        }
+        boolean alpha = b.hasAlpha();
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        b.compress(alpha ? Bitmap.CompressFormat.PNG : Bitmap.CompressFormat.JPEG, alpha ? 100 : 95, out);
+        b.recycle();
+        box[0] = out.toByteArray();
+        return alpha ? "image/png" : "image/jpeg";
     }
 
     private String displayName(Uri uri) {
@@ -257,7 +342,7 @@ public class MainActivity extends Activity {
                 }
                 long ms = System.currentTimeMillis() - t0;
                 final String js = "window.__vkSeg&&window.__vkSeg(" + jsString(callbackId) + "," + ok + "," + jsString(payload) + "," + ms + "," + jsString(label) + ")";
-                runOnUiThread(() -> web.evaluateJavascript(js, null));
+                runOnUiThread(() -> { if (web != null) web.evaluateJavascript(js, null); });
             });
         }
 
@@ -267,6 +352,8 @@ public class MainActivity extends Activity {
             new Thread(() -> {
                 boolean ok = false;
                 String where;
+                Uri item = null;
+                ContentResolver cr = getContentResolver();
                 try {
                     byte[] data = Base64.decode(base64, Base64.DEFAULT);
                     boolean image = mime != null && mime.startsWith("image/png");
@@ -277,8 +364,7 @@ public class MainActivity extends Activity {
                     v.put(MediaStore.MediaColumns.MIME_TYPE, mime);
                     v.put(MediaStore.MediaColumns.RELATIVE_PATH, folder);
                     v.put(MediaStore.MediaColumns.IS_PENDING, 1);
-                    ContentResolver cr = getContentResolver();
-                    Uri item = cr.insert(collection, v);
+                    item = cr.insert(collection, v);
                     if (item == null) throw new IllegalStateException("kein Speicherplatz");
                     try (OutputStream out = cr.openOutputStream(item)) {
                         if (out == null) throw new IllegalStateException("nicht beschreibbar");
@@ -289,11 +375,17 @@ public class MainActivity extends Activity {
                     cr.update(item, done, null, null);
                     ok = true;
                     where = (image ? "Bilder" : "Downloads") + "/Vektorisierer";
+                } catch (OutOfMemoryError e) {
+                    where = "zu wenig Arbeitsspeicher, wähle eine kleinere PNG-Grösse";
                 } catch (Exception e) {
                     where = String.valueOf(e.getMessage());
                 }
+                // Halb geschriebene Datei nicht als Leiche im Speicher lassen
+                if (!ok && item != null) {
+                    try { cr.delete(item, null, null); } catch (Exception ignored) { }
+                }
                 final String js = "window.__vkSaved&&window.__vkSaved(" + jsString(callbackId) + "," + ok + "," + jsString(where) + ")";
-                runOnUiThread(() -> web.evaluateJavascript(js, null));
+                runOnUiThread(() -> { if (web != null) web.evaluateJavascript(js, null); });
             }).start();
         }
     }

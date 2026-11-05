@@ -39,7 +39,8 @@ final class Segmenter {
     private static final float[] IMAGENET_STD = {0.229f, 0.224f, 0.225f};
     private static final Model[] MODELS = {
             new Model("foto", "u2net.onnx", "U²-Net", 320, IMAGENET_MEAN, IMAGENET_STD),
-            new Model("zeichnung", "isnet-anime.onnx", "ISNet-Anime", 1024, new float[]{0f, 0f, 0f}, new float[]{1f, 1f, 1f}),
+            // ISNet (rembg): Mittelwert wie ImageNet, aber Streuung 1 (geprüft: Treffer 0.98 statt 0.85-0.93)
+            new Model("zeichnung", "isnet-anime.onnx", "ISNet-Anime", 1024, IMAGENET_MEAN, new float[]{1f, 1f, 1f}),
     };
 
     private final Context ctx;
