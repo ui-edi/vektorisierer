@@ -20,7 +20,8 @@ var d=document.createElement('meta');d.name='darkreader-lock';h.appendChild(d);}
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <style>
-/* Werkbank: Bühne mit Vergleichsschieber oben (Desktop links, sticky), Regler-Panels darunter (Desktop rechts). Auswahl trägt Ankerpunkt-Ecken wie in einem Vektorprogramm. */
+/* App-Hülle wie in Bildbearbeitungs-Apps: oben Leiste, darunter das Bild (bleibt stehen), darunter die Werkzeuge (scrollen),
+   unten die Daumenleiste mit den Bereichen. Ab 960px: Bild links, Werkzeuge rechts. Auswahl trägt Ankerpunkt-Ecken wie in einem Vektorprogramm. */
 :root{
   --paper:#eef0f5; --surface:#ffffff; --sunken:#e3e6ee; --ink:#191b27; --muted:#5a5f73; --line:#d4d8e3;
   --path:#d0136b; --path-ink:#ffffff; --path-soft:#d0136b1f; --ok:#16794a; --warn:#a35a00;
@@ -28,7 +29,7 @@ var d=document.createElement('meta');d.name='darkreader-lock';h.appendChild(d);}
   --f-display:"Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
   --f-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --f-mono:"IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --r:10px;
+  --r:12px; --gut:max(14px, env(safe-area-inset-left, 0px)); --gutr:max(14px, env(safe-area-inset-right, 0px));
   color-scheme:light dark; /* Seite hat eigenes Dunkel-Design: verhindert, dass Chromes Auto-Dunkelmodus die Vektorfarben aufhellt */
 }
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
@@ -42,82 +43,95 @@ var d=document.createElement('meta');d.name='darkreader-lock';h.appendChild(d);}
 
 *{box-sizing:border-box}
 [hidden]{display:none!important}
-body{background:var(--paper);color:var(--ink);font:15px/1.5 var(--f-body);
-  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:20px 40px}
-.wrap{max-width:1240px;margin:0 auto;display:grid;gap:18px}
-header.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
-h1{font:700 clamp(30px,6vw,44px)/1 var(--f-display);letter-spacing:-.02em;margin:0;display:flex;align-items:center;gap:12px;text-wrap:balance}
-h1 .glyph{width:.9em;height:.9em;flex:none}
-.tag{color:var(--muted);margin:6px 0 0;max-width:60ch}
+html,body{height:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.5 var(--f-body);overflow:hidden}
+:focus-visible{outline:2px solid var(--path);outline-offset:2px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- Hülle ---------- */
+.app{height:100%;max-width:1440px;margin:0 auto;display:grid;
+  grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr) auto;
+  grid-template-areas:"bar" "stage" "panel" "tabs"}
+@media (min-width:960px){.app{grid-template-columns:minmax(0,1.55fr) minmax(360px,1fr);grid-template-rows:auto minmax(0,1fr) auto;
+  grid-template-areas:"bar bar" "stage panel" "stage tabs"}}
+
+.appbar{grid-area:bar;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px var(--gutr) 10px var(--gut)}
+.brand{display:flex;align-items:center;gap:9px;min-width:0}
+.brand h1{font:700 21px/1 var(--f-display);letter-spacing:-.02em;margin:0;white-space:nowrap}
+.brand .glyph{width:26px;height:26px;flex:none}
+.barbtns{display:flex;gap:8px;flex:none}
 .btn{font:600 14px/1 var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--ink);
-  padding:11px 16px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:8px;min-height:42px}
+  padding:10px 14px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:40px}
+.btn svg{width:17px;height:17px;flex:none}
 .btn:hover{border-color:var(--muted)}
 .btn.primary{background:var(--path);border-color:var(--path);color:var(--path-ink)}
 .btn.primary:hover{filter:brightness(1.07)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
-:focus-visible{outline:2px solid var(--path);outline-offset:2px}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
-.layout{display:grid;gap:18px;grid-template-columns:1fr}
-@media (min-width:960px){.layout{grid-template-columns:minmax(0,1.45fr) minmax(330px,1fr);align-items:start}
-  .stagecol{position:sticky;top:max(12px, env(safe-area-inset-top, 0px))}}
-.stagecol,.panelcol{display:grid;gap:12px;min-width:0}
-
-.stage{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;position:relative}
-.viewbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line)}
+/* ---------- Bühne (bleibt stehen) ---------- */
+.stagewrap{grid-area:stage;padding:0 var(--gutr) 8px var(--gut);min-height:0;display:flex}
+.stage{position:relative;flex:1;display:flex;flex-direction:column;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
+  height:clamp(230px,47vh,620px)}
+@media (min-width:960px){.stagewrap{padding-bottom:var(--gut)}.stage{height:auto}}
+.viewbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 8px;border-bottom:1px solid var(--line)}
 .seg{display:inline-flex;background:var(--sunken);border-radius:999px;padding:3px;gap:2px;flex-wrap:wrap}
-.seg button{font:500 13px/1 var(--f-body);border:0;background:transparent;color:var(--muted);padding:8px 12px;border-radius:999px;cursor:pointer;min-height:32px}
+.seg button{font:500 13px/1 var(--f-body);border:0;background:transparent;color:var(--muted);padding:8px 11px;border-radius:999px;cursor:pointer;min-height:32px}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px #0002}
-.viewport{position:relative}
-.zoomer{overflow:auto;max-height:min(66vh,720px);background:repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0/18px 18px;touch-action:pan-x pan-y pinch-zoom}
-.canvasbox{position:relative;margin:0 auto;cursor:crosshair}
-.canvasbox img,.canvasbox svg{position:absolute;inset:0;width:100%;height:100%;display:block}
-.canvasbox img{image-rendering:auto}
+.seg.small{flex-wrap:nowrap}
+.seg.small button{padding:7px 7px;min-height:30px;font-size:12px;white-space:nowrap}
+@media (max-width:370px){.seg.small button{padding:7px 5px;font-size:11px}}
+.viewport{position:relative;flex:1;min-height:0}
+.zoomer{position:absolute;inset:0;overflow:auto;display:grid;background:repeating-conic-gradient(var(--checker-a) 0 25%, var(--checker-b) 0 50%) 0 0/18px 18px;touch-action:pan-x pan-y pinch-zoom}
+.canvasbox{position:relative;margin:auto;cursor:crosshair}
+.canvasbox img{position:absolute;inset:0;width:100%;height:100%;display:block;image-rendering:auto}
 .canvasbox.pixel #orgimg{image-rendering:pixelated}
 .divider{position:absolute;top:0;bottom:0;width:2px;background:var(--path);pointer-events:none;transform:translateX(-1px)}
 .grip{position:absolute;top:0;bottom:0;width:44px;transform:translateX(-22px);cursor:ew-resize;touch-action:none;z-index:2}
-.grip::before{content:"";position:absolute;top:50%;left:50%;width:30px;height:30px;transform:translate(-50%,-50%);border-radius:50%;background:var(--path);box-shadow:0 1px 4px #0006}
+.grip::before{content:"";position:absolute;top:50%;left:50%;width:32px;height:32px;transform:translate(-50%,-50%);border-radius:50%;background:var(--path);box-shadow:0 1px 4px #0006}
 .grip::after{content:"◂ ▸";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--path-ink);font:700 12px/1 var(--f-body);white-space:nowrap}
-.bgopts{display:grid;gap:12px;padding:12px;background:var(--sunken);border-radius:8px}
-.lbl{position:absolute;top:8px;font:500 11px/1 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;background:var(--surface);color:var(--muted);padding:5px 7px;border-radius:4px;pointer-events:none}
-.splitrow{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--line)}
-.splitrow input{flex:1;min-width:0}
-.busy{position:absolute;inset:auto 12px 12px 12px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;gap:8px;font-size:13px}
+.lbl{position:absolute;top:8px;font:500 10px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;background:var(--surface);color:var(--muted);padding:5px 7px;border-radius:4px;pointer-events:none;opacity:.92}
+.statline{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;padding:7px 10px;border-top:1px solid var(--line);font:400 12px/1.3 var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.statline b{font-weight:500;color:var(--ink)}
+.statline .hi b{color:var(--ok)}
+.busy{position:absolute;inset:auto 10px 44px 10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;display:grid;gap:8px;font-size:13px;z-index:3}
 .bar{height:4px;background:var(--sunken);border-radius:4px;overflow:hidden}
 .bar i{display:block;height:100%;width:0;background:var(--path);transition:width .2s}
-.drop{position:absolute;inset:0;display:grid;place-items:center;background:var(--path-soft);border:2px dashed var(--path);font:600 18px var(--f-display);color:var(--ink)}
+.drop{position:absolute;inset:0;display:grid;place-items:center;background:var(--path-soft);border:2px dashed var(--path);border-radius:var(--r);font:600 18px var(--f-display);color:var(--ink);z-index:4}
 
-.stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-.stat{background:var(--surface);padding:10px 12px;min-width:0}
-.stat b{display:block;font:500 18px/1.15 var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.stat span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
-.stat.hi b{color:var(--ok)}
-@media (max-width:520px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stat.wide{grid-column:span 2}}
-.note{font-size:13px;color:var(--muted);margin:0}
-.actions{display:flex;flex-wrap:wrap;gap:8px}
-
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:14px;min-width:0}
-.panel h2{font:700 17px/1.2 var(--f-display);margin:0;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
-.panel h2 small{font:400 12px var(--f-mono);color:var(--muted)}
+/* ---------- Werkzeuge (scrollen) ---------- */
+.panelarea{grid-area:panel;overflow:auto;min-height:0;padding:4px var(--gutr) 16px var(--gut);overscroll-behavior:contain}
+@media (min-width:960px){.panelarea{padding-top:0}}
+.pane{display:grid;gap:12px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:14px;min-width:0}
+.panel h2{font:700 16px/1.2 var(--f-display);margin:0;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.panel h2 small{font:400 12px var(--f-mono);color:var(--muted);text-align:right}
 .field{display:grid;gap:6px}
 .field>label,.fl{font-weight:500;font-size:14px;display:flex;justify-content:space-between;gap:8px}
 .field output{font:500 13px var(--f-mono);color:var(--muted);font-variant-numeric:tabular-nums}
 .hint{font-size:12px;color:var(--muted);margin:0}
+.note{font-size:13px;color:var(--muted);margin:0}
 input[type=range]{width:100%;accent-color:var(--path);height:28px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chips button{font:500 12px/1 var(--f-mono);border:1px solid var(--line);background:transparent;color:var(--ink);padding:7px 10px;border-radius:6px;cursor:pointer;min-height:30px}
 .chips button[aria-pressed="true"]{border-color:var(--path);color:var(--path);background:var(--path-soft)}
-.presets{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
-.presets button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:10px 6px;cursor:pointer;font:600 13px var(--f-body);display:grid;gap:2px;justify-items:center}
-.presets button small{font:400 11px var(--f-body);color:var(--muted)}
-.presets button[aria-pressed="true"]{border-color:var(--path);box-shadow:inset 0 0 0 1px var(--path)}
+.presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:8px}
+.presets button{position:relative;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;padding:11px 12px;cursor:pointer;font:600 14px/1.2 var(--f-body);display:grid;gap:3px;text-align:left}
+.presets button small{font:400 12px/1.3 var(--f-body);color:var(--muted)}
+.presets button[aria-pressed="true"]{border-color:var(--path);box-shadow:inset 0 0 0 1px var(--path);background:var(--path-soft)}
 .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-weight:500}
-.toggle input{width:20px;height:20px;accent-color:var(--path)}
+.toggle span small{display:block;font-weight:400;font-size:12px;color:var(--muted)}
+.toggle input{width:20px;height:20px;accent-color:var(--path);flex:none}
+.switch{appearance:none;-webkit-appearance:none;width:44px!important;height:26px!important;border-radius:999px;background:var(--sunken);border:1px solid var(--line);position:relative;cursor:pointer;transition:background .15s}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:var(--surface);box-shadow:0 1px 2px #0004;transition:transform .15s}
+.switch:checked{background:var(--path);border-color:var(--path)}
+.switch:checked::after{transform:translateX(18px)}
+.bgopts{display:grid;gap:12px;padding:12px;background:var(--sunken);border-radius:8px}
 details.more summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--muted)}
 details.more[open] summary{margin-bottom:12px}
 details.more .inner{display:grid;gap:14px}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
 
-.swlist{position:relative;display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px;max-height:380px;overflow:auto;padding:4px}
+.swlist{position:relative;display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px;max-height:46vh;overflow:auto;padding:4px}
 .sw{position:relative;display:grid;grid-template-columns:28px minmax(0,1fr) 28px;align-items:center;gap:6px;padding:5px;border:1px solid var(--line);border-radius:6px;background:var(--surface)}
 .sw.off{opacity:.45}
 .sw.off .chip{background-image:linear-gradient(135deg,transparent 46%,var(--ink) 46%,var(--ink) 54%,transparent 54%)}
@@ -136,41 +150,51 @@ details.more .inner{display:grid;gap:14px}
 .eye:hover{background:var(--sunken);color:var(--ink)}
 .rowbtns{display:flex;flex-wrap:wrap;gap:6px}
 .rowbtns .btn{min-height:34px;padding:8px 12px;font-size:13px}
-.toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:999px;font-weight:500;font-size:14px;max-width:calc(100% - 32px)}
 footer{font-size:12px;color:var(--muted)}
 footer a{color:inherit}
 textarea.fallback{width:100%;height:120px;font:12px var(--f-mono);background:var(--sunken);color:var(--ink);border:1px solid var(--line);border-radius:6px}
+
+/* ---------- Daumenleiste ---------- */
+.tabs{grid-area:tabs;display:grid;grid-template-columns:repeat(6,minmax(0,1fr));background:var(--surface);border-top:1px solid var(--line);
+  padding:4px var(--gutr) calc(4px + env(safe-area-inset-bottom, 0px)) var(--gut)}
+@media (min-width:960px){.tabs{border:1px solid var(--line);border-radius:var(--r);margin:0 var(--gutr) var(--gut) 0;padding:4px}}
+.tabs button{border:0;background:transparent;color:var(--muted);display:grid;justify-items:center;gap:3px;padding:7px 2px;border-radius:10px;cursor:pointer;font:500 11px/1.1 var(--f-body);min-height:52px;min-width:0}
+.tabs button svg{width:22px;height:22px}
+.tabs button span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tabs button[aria-selected="true"]{color:var(--path);background:var(--path-soft)}
+
+.toast{position:fixed;left:50%;bottom:calc(76px + env(safe-area-inset-bottom, 0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:999px;font-weight:500;font-size:14px;max-width:calc(100% - 32px);z-index:20;text-align:center}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 
-<div class="wrap">
-  <header class="top">
-    <div>
-      <h1><svg class="glyph" viewBox="0 0 40 40" aria-hidden="true"><path d="M6 32 C 10 8, 30 8, 34 32" fill="none" stroke="currentColor" stroke-width="3"/><line x1="6" y1="32" x2="12" y2="10" stroke="var(--path)" stroke-width="1.5"/><line x1="34" y1="32" x2="28" y2="10" stroke="var(--path)" stroke-width="1.5"/><rect x="3" y="29" width="6" height="6" fill="var(--surface)" stroke="var(--path)" stroke-width="1.5"/><rect x="31" y="29" width="6" height="6" fill="var(--surface)" stroke="var(--path)" stroke-width="1.5"/><circle cx="12" cy="10" r="2.6" fill="var(--path)"/><circle cx="28" cy="10" r="2.6" fill="var(--path)"/></svg>Vektorisierer</h1>
-      <p class="tag">Bild rein, SVG raus. Alles läuft in deinem Browser, kein Bild verlässt das Gerät.</p>
+<div class="app">
+  <header class="appbar">
+    <div class="brand">
+      <svg class="glyph" viewBox="0 0 40 40" aria-hidden="true"><path d="M6 32 C 10 8, 30 8, 34 32" fill="none" stroke="currentColor" stroke-width="3"/><line x1="6" y1="32" x2="12" y2="10" stroke="var(--path)" stroke-width="1.5"/><line x1="34" y1="32" x2="28" y2="10" stroke="var(--path)" stroke-width="1.5"/><rect x="3" y="29" width="6" height="6" fill="var(--surface)" stroke="var(--path)" stroke-width="1.5"/><rect x="31" y="29" width="6" height="6" fill="var(--surface)" stroke="var(--path)" stroke-width="1.5"/><circle cx="12" cy="10" r="2.6" fill="var(--path)"/><circle cx="28" cy="10" r="2.6" fill="var(--path)"/></svg>
+      <h1>Vektorisierer</h1>
     </div>
-    <div class="actions">
-      <label class="btn primary" for="file">Bild wählen<input id="file" class="sr" type="file" accept="image/*"></label>
+    <div class="barbtns">
+      <label class="btn" for="file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/></svg><span>Bild</span><input id="file" class="sr" type="file" accept="image/*"></label>
+      <button class="btn primary" id="save2"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg><span>SVG</span></button>
     </div>
   </header>
 
-  <div class="layout">
-    <section class="stagecol" aria-label="Vorschau">
-      <div class="stage" id="stage">
-        <div class="viewbar">
-          <div class="seg" role="group" aria-label="Ansicht">
-            <button id="v-split" aria-pressed="true">Vergleich</button>
-            <button id="v-vec" aria-pressed="false">Vektor</button>
-            <button id="v-org" aria-pressed="false">Original</button>
-          </div>
-          <div class="seg" role="group" aria-label="Zoom" id="zoomseg">
-            <button data-z="1" aria-pressed="true">1×</button>
-            <button data-z="2" aria-pressed="false">2×</button>
-            <button data-z="4" aria-pressed="false">4×</button>
-            <button data-z="8" aria-pressed="false">8×</button>
-          </div>
+  <section class="stagewrap" aria-label="Vorschau">
+    <div class="stage" id="stage">
+      <div class="viewbar">
+        <div class="seg small" role="group" aria-label="Ansicht">
+          <button id="v-split" aria-pressed="true">Vergleich</button>
+          <button id="v-vec" aria-pressed="false">Vektor</button>
+          <button id="v-org" aria-pressed="false">Original</button>
         </div>
-        <div class="viewport">
+        <div class="seg small" role="group" aria-label="Zoom" id="zoomseg">
+          <button data-z="1" aria-pressed="true">1×</button>
+          <button data-z="2" aria-pressed="false">2×</button>
+          <button data-z="4" aria-pressed="false">4×</button>
+          <button data-z="8" aria-pressed="false">8×</button>
+        </div>
+      </div>
+      <div class="viewport">
         <div class="zoomer" id="zoomer">
           <div class="canvasbox" id="box">
             <img id="orgimg" alt="Originalbild">
@@ -181,43 +205,53 @@ textarea.fallback{width:100%;height:120px;font:12px var(--f-mono);background:var
         </div>
         <span class="lbl" id="lbl-l" style="left:8px">Vektor</span>
         <span class="lbl" id="lbl-r" style="right:8px">Original</span>
-        </div>
-        <div class="splitrow" id="splitrow">
-          <label for="split" class="hint" style="white-space:nowrap">Vektor ◂ ▸ Original</label>
-          <input id="split" type="range" min="0" max="100" value="50">
-        </div>
-        <div class="busy" id="busy" hidden><div id="busytxt">Farben werden gesucht …</div><div class="bar"><i id="busybar"></i></div></div>
-        <div class="drop" id="drop" hidden>Bild hier ablegen</div>
       </div>
+      <div class="statline" aria-live="polite">
+        <span><b id="s-col">–</b> Farben</span>
+        <span><b id="s-path">–</b> Pfade</span>
+        <span><b id="s-node">–</b> Knoten</span>
+        <span><b id="s-kb">–</b></span>
+        <span class="hi">Treue <b id="s-form">–</b></span>
+      </div>
+      <div class="busy" id="busy" hidden><div id="busytxt">Farben werden gesucht …</div><div class="bar"><i id="busybar"></i></div></div>
+      <div class="drop" id="drop" hidden>Bild hier ablegen</div>
+    </div>
+  </section>
 
-      <div class="stats" aria-live="polite">
-        <div class="stat"><b id="s-col">–</b><span>Farben</span></div>
-        <div class="stat"><b id="s-path">–</b><span>Pfade</span></div>
-        <div class="stat"><b id="s-node">–</b><span>Knoten</span></div>
-        <div class="stat"><b id="s-kb">–</b><span>SVG-Grösse</span></div>
-        <div class="stat hi wide"><b id="s-form">–</b><span>Formtreue</span></div>
+  <main class="panelarea" id="panelarea">
+    <!-- STIL -->
+    <section class="pane" data-pane="stil" aria-label="Stil">
+      <div class="panel">
+        <h2>Stil <small>ein Tipp, alles eingestellt</small></h2>
+        <div class="presets" role="group" aria-label="Voreinstellung">
+          <button data-p="detail" aria-pressed="false">Perfekte Details<small>200 Farben, feinste Kurven</small></button>
+          <button data-p="haare" aria-pressed="false">Haare &amp; Fell<small>jede Strähne, nichts geglättet</small></button>
+          <button data-p="farbe" aria-pressed="false">Farbtreu<small>250 Farben, weiche Verläufe</small></button>
+          <button data-p="foto" aria-pressed="false">Foto<small>64 Farben, ruhige Flächen</small></button>
+          <button data-p="illu" aria-pressed="true">Illustration<small>24 Farben, klare Formen</small></button>
+          <button data-p="logo" aria-pressed="false">Logo<small>8 Farben, scharfe Ecken</small></button>
+          <button data-p="pixel" aria-pressed="false">Pixelart<small>jedes Pixel ein Quadrat</small></button>
+        </div>
       </div>
-      <p class="note" id="srcnote">Beispielbild geladen. Wähle oder ziehe dein eigenes Bild hinein, oder füge es mit Einfügen ein.</p>
-      <p class="note">Formtreue zeigt, wie viele Pixel nach dem Zurückrechnen exakt in ihrer Farbfläche liegen. Nichts wird dazuerfunden: jede Form stammt aus deinen Pixeln. <span id="s-near"></span></p>
-      <div class="actions">
-        <button class="btn primary" id="save">SVG speichern</button>
-        <button class="btn" id="copy">SVG kopieren</button>
-        <button class="btn" id="savepng">PNG speichern</button>
+      <div class="panel">
+        <h2>Schnellschalter</h2>
+        <label class="toggle" for="qbg"><span>Transparenter Hintergrund<small>Hintergrund entfernen, Motiv freistellen</small></span><input id="qbg" class="switch" type="checkbox"></label>
+        <label class="toggle" for="qpix"><span>Pixel-Look<small>Bild als Pixelart, Raster unter «Formen»</small></span><input id="qpix" class="switch" type="checkbox"></label>
+        <div class="field" id="qaiwrap" hidden>
+          <span class="fl">KI-Freisteller</span>
+          <div class="seg" role="group" aria-label="KI-Freisteller" id="qai">
+            <button data-ai="off" aria-pressed="true">Aus</button>
+            <button data-ai="foto" aria-pressed="false">KI Foto</button>
+            <button data-ai="zeichnung" aria-pressed="false">KI Zeichnung</button>
+          </div>
+          <p class="hint">Foto: Personen, Tiere, Produkte. Zeichnung: Figuren, Game-Art, Illustrationen.</p>
+        </div>
+        <p class="hint" id="qainote">Der KI-Freisteller läuft in der Android-App. Hier stellt die Rand-Erkennung frei.</p>
       </div>
-      <textarea class="fallback" id="fallback" hidden readonly aria-label="SVG-Code"></textarea>
     </section>
 
-    <section class="panelcol" aria-label="Einstellungen">
-      <div class="panel">
-        <h2>Bildart</h2>
-        <div class="presets" role="group" aria-label="Voreinstellung">
-          <button data-p="logo" aria-pressed="false">Logo<small>klare Flächen</small></button>
-          <button data-p="illu" aria-pressed="true">Illustration<small>Verläufe</small></button>
-          <button data-p="foto" aria-pressed="false">Foto<small>viele Töne</small></button>
-          <button data-p="pixel" aria-pressed="false">Pixelart<small>scharfe Kanten</small></button>
-        </div>
-      </div>
-
+    <!-- FARBEN -->
+    <section class="pane" data-pane="farben" aria-label="Farben" hidden>
       <div class="panel">
         <h2>Farben <small id="colinfo"></small></h2>
         <div class="seg" role="group" aria-label="Farbmodus" id="modeseg">
@@ -237,46 +271,46 @@ textarea.fallback{width:100%;height:120px;font:12px var(--f-mono);background:var
           <input id="thr" type="range" min="1" max="254" value="128">
           <p class="hint">Alles heller als die Schwelle wird weiss.</p>
         </div>
-        <div class="field">
-          <span class="fl">Hintergrund</span>
-          <div class="seg" role="group" aria-label="Hintergrund" id="bgseg">
-            <button data-bg="keep" aria-pressed="true">Behalten</button>
-            <button data-bg="remove" aria-pressed="false">Entfernen</button>
-          </div>
-          <div class="seg" role="group" aria-label="Methode zum Freistellen" id="bgmethod" hidden>
-            <button data-me="edge" aria-pressed="true">Rand-Erkennung</button>
-            <button data-me="foto" aria-pressed="false">KI Foto</button>
-            <button data-me="zeichnung" aria-pressed="false">KI Zeichnung</button>
-          </div>
-          <p class="hint" id="bghint">Erkennt den Hintergrund vom Rand her und stellt das Motiv frei.</p>
-          <div class="bgopts" id="bgopts">
-            <div class="field">
-              <label for="bgtol">Toleranz <output id="o-bgtol">30</output></label>
-              <input id="bgtol" type="range" min="4" max="90" value="30">
-              <p class="hint">Höher entfernt mehr ähnliche Töne, tiefer schont feine Kanten.</p>
-            </div>
-            <label class="toggle" for="bgholes">Eingeschlossene Lücken auch entfernen<input id="bgholes" type="checkbox"></label>
-            <label class="toggle" for="bgedge">Farbsaum an den Kanten entfernen<input id="bgedge" type="checkbox" checked></label>
-          </div>
-          <span class="fl">Tippen ins Bild</span>
-          <div class="seg" role="group" aria-label="Tippen ins Bild" id="tapseg">
-            <button data-t="pick" aria-pressed="true">Farbe finden</button>
-            <button data-t="cut" aria-pressed="false">Wegnehmen</button>
-            <button data-t="keep" aria-pressed="false">Zurückholen</button>
-          </div>
-          <div class="rowbtns" id="wandrow" hidden><button class="btn" id="wandundo">Letzten Tipp rückgängig</button><button class="btn" id="wandclear">Alle Tipps löschen</button></div>
-        </div>
       </div>
+    </section>
 
+    <!-- FREISTELLEN -->
+    <section class="pane" data-pane="frei" aria-label="Freistellen" hidden>
       <div class="panel">
-        <h2>Ebenen <small id="selinfo">Tippe ins Bild, um eine Farbe zu finden</small></h2>
-        <div class="swlist" id="swlist"></div>
-        <div class="rowbtns">
-          <button class="btn" id="allon">Alle zeigen</button>
-          <button class="btn" id="resetcol">Originalfarben</button>
+        <h2>Hintergrund</h2>
+        <div class="seg" role="group" aria-label="Hintergrund" id="bgseg">
+          <button data-bg="keep" aria-pressed="true">Behalten</button>
+          <button data-bg="remove" aria-pressed="false">Entfernen</button>
+        </div>
+        <div class="seg" role="group" aria-label="Methode zum Freistellen" id="bgmethod" hidden>
+          <button data-me="edge" aria-pressed="true">Rand-Erkennung</button>
+          <button data-me="foto" aria-pressed="false">KI Foto</button>
+          <button data-me="zeichnung" aria-pressed="false">KI Zeichnung</button>
+        </div>
+        <p class="hint" id="bghint">Erkennt den Hintergrund vom Rand her und stellt das Motiv frei.</p>
+        <div class="bgopts" id="bgopts">
+          <div class="field">
+            <label for="bgtol">Toleranz <output id="o-bgtol">30</output></label>
+            <input id="bgtol" type="range" min="4" max="90" value="30">
+            <p class="hint">Höher entfernt mehr ähnliche Töne, tiefer schont feine Kanten.</p>
+          </div>
+          <label class="toggle" for="bgholes">Eingeschlossene Lücken auch entfernen<input id="bgholes" type="checkbox"></label>
+          <label class="toggle" for="bgedge">Farbsaum an den Kanten entfernen<input id="bgedge" type="checkbox" checked></label>
         </div>
       </div>
+      <div class="panel">
+        <h2>Tippen ins Bild</h2>
+        <div class="seg" role="group" aria-label="Tippen ins Bild" id="tapseg">
+          <button data-t="pick" aria-pressed="true">Farbe finden</button>
+          <button data-t="cut" aria-pressed="false">Wegnehmen</button>
+          <button data-t="keep" aria-pressed="false">Zurückholen</button>
+        </div>
+        <div class="rowbtns" id="wandrow" hidden><button class="btn" id="wandundo">Letzten Tipp rückgängig</button><button class="btn" id="wandclear">Alle Tipps löschen</button></div>
+      </div>
+    </section>
 
+    <!-- FORMEN -->
+    <section class="pane" data-pane="formen" aria-label="Formen" hidden>
       <div class="panel">
         <h2>Formen</h2>
         <div class="field" id="f-grid" hidden>
@@ -294,29 +328,64 @@ textarea.fallback{width:100%;height:120px;font:12px var(--f-mono);background:var
           <input id="speck" type="range" min="0" max="100" value="8">
           <p class="hint">Flecken unter so vielen Pixeln verschmelzen mit ihrer Umgebung. Es entstehen keine Löcher.</p>
         </div>
-        <details class="more">
-          <summary>Mehr Einstellungen</summary>
-          <div class="inner">
-            <div class="field">
-              <label for="blur">Rauschfilter <output id="o-blur">1</output></label>
-              <input id="blur" type="range" min="0" max="5" value="1">
-              <p class="hint">Glättet Körnung vor dem Zerlegen. Für Fotos 2 bis 3.</p>
-            </div>
-            <div class="field">
-              <span class="fl">Arbeitsgrösse</span>
-              <div class="chips" id="sizechips">
-                <button data-s="800">800 px</button><button data-s="1600" aria-pressed="true">1600 px</button><button data-s="2400">2400 px</button><button data-s="0">Original</button>
-              </div>
-              <p class="hint">Längste Seite beim Nachzeichnen. Grösser heisst genauer, aber langsamer.</p>
-            </div>
-            <label class="toggle" for="corners">Ecken scharf halten<input id="corners" type="checkbox" checked></label>
-            <label class="toggle" for="seams">Haarlinien zwischen Flächen schliessen<input id="seams" type="checkbox" checked></label>
+        <div class="field">
+          <label for="blur">Rauschfilter <output id="o-blur">1</output></label>
+          <input id="blur" type="range" min="0" max="5" value="1">
+          <p class="hint">Glättet Körnung vor dem Zerlegen. Für Fotos 2 bis 3, für feine Details 0.</p>
+        </div>
+        <div class="field">
+          <span class="fl">Arbeitsgrösse</span>
+          <div class="chips" id="sizechips">
+            <button data-s="800">800 px</button><button data-s="1600" aria-pressed="true">1600 px</button><button data-s="2400">2400 px</button><button data-s="0">Original</button>
           </div>
-        </details>
+          <p class="hint">Längste Seite beim Nachzeichnen. Grösser heisst genauer, aber langsamer.</p>
+        </div>
+        <label class="toggle" for="corners">Ecken scharf halten<input id="corners" type="checkbox" checked></label>
+        <label class="toggle" for="seams">Haarlinien zwischen Flächen schliessen<input id="seams" type="checkbox" checked></label>
       </div>
-      <footer>Motor: <a href="https://github.com/jankovicsandras/imagetracerjs" target="_blank" rel="noopener">imagetracer.js</a> (gemeinfrei) mit eigener Farbsuche. Geplant: <a href="https://github.com/visioncortex/vtracer" target="_blank" rel="noopener">vtracer</a> als zweiter Motor.</footer>
     </section>
-  </div>
+
+    <!-- EBENEN -->
+    <section class="pane" data-pane="ebenen" aria-label="Ebenen" hidden>
+      <div class="panel">
+        <h2>Ebenen <small id="selinfo">Tippe ins Bild, um eine Farbe zu finden</small></h2>
+        <div class="swlist" id="swlist"></div>
+        <div class="rowbtns">
+          <button class="btn" id="allon">Alle zeigen</button>
+          <button class="btn" id="resetcol">Originalfarben</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXPORT -->
+    <section class="pane" data-pane="export" aria-label="Export" hidden>
+      <div class="panel">
+        <h2>Export</h2>
+        <div class="actions">
+          <button class="btn primary" id="save">SVG speichern</button>
+          <button class="btn" id="savepng">PNG speichern</button>
+          <button class="btn" id="copy">SVG kopieren</button>
+        </div>
+        <p class="hint">In der SVG ist jede Farbe ein eigener, benannter Pfad: in Illustrator oder Affinity direkt einzeln bearbeitbar.</p>
+        <textarea class="fallback" id="fallback" hidden readonly aria-label="SVG-Code"></textarea>
+      </div>
+      <div class="panel">
+        <h2>Über dieses Bild</h2>
+        <p class="note" id="srcnote">Beispielbild geladen. Tippe oben auf «Bild», um dein eigenes zu laden, oder ziehe es hinein.</p>
+        <p class="note">Treue zeigt, wie viele Pixel nach dem Zurückrechnen exakt in ihrer Farbfläche liegen. Nichts wird dazuerfunden: jede Form stammt aus deinen Pixeln. <span id="s-near"></span></p>
+        <footer>Motor: <a href="https://github.com/jankovicsandras/imagetracerjs" target="_blank" rel="noopener">imagetracer.js</a> (gemeinfrei) mit eigener Farbsuche. Code: <a href="https://github.com/ui-edi/vektorisierer" target="_blank" rel="noopener">ui-edi/vektorisierer</a>.</footer>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabs" role="tablist" aria-label="Bereiche" id="tabs">
+    <button role="tab" data-tab="stil" aria-selected="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l10-10"/><path d="M15 3l1.2 2.8L19 7l-2.8 1.2L15 11l-1.2-2.8L11 7l2.8-1.2z"/><path d="M19.5 13l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z"/></svg><span>Stil</span></button>
+    <button role="tab" data-tab="farben" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.2-1-1.4-1-2.5 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4C21 6.6 17 3 12 3z"/><circle cx="7.5" cy="11" r="1.2"/><circle cx="10" cy="7" r="1.2"/><circle cx="15" cy="7.5" r="1.2"/></svg><span>Farben</span></button>
+    <button role="tab" data-tab="frei" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.6 7.6L20 18M8.6 16.4L20 6"/></svg><span>Freistellen</span></button>
+    <button role="tab" data-tab="formen" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 18C7 6 17 6 20 18"/><rect x="2.5" y="16.5" width="3" height="3"/><rect x="18.5" y="16.5" width="3" height="3"/><path d="M4 18l3-9M20 18l-3-9"/><circle cx="7" cy="8.5" r="1.3"/><circle cx="17" cy="8.5" r="1.3"/></svg><span>Formen</span></button>
+    <button role="tab" data-tab="ebenen" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg><span>Ebenen</span></button>
+    <button role="tab" data-tab="export" aria-selected="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="M7 10l5 5 5-5"/><path d="M5 20h14"/></svg><span>Export</span></button>
+  </nav>
 </div>
 <div class="toast" id="toast" hidden></div>
 
@@ -1714,12 +1783,15 @@ self.onmessage=function(e){
 "use strict";
 var $=function(id){return document.getElementById(id);};
 var PRESETS={
-  logo:{mode:'color',count:8,smooth:1,speck:16,blur:0,corners:true,pixel:false},
-  illu:{mode:'color',count:24,smooth:1,speck:8,blur:1,corners:true,pixel:false},
-  foto:{mode:'color',count:64,smooth:1.2,speck:24,blur:2,corners:false,pixel:false},
+  detail:{mode:'color',count:200,smooth:0.4,speck:4,blur:0,corners:true,pixel:false,size:2400},
+  haare:{mode:'color',count:128,smooth:0.2,speck:2,blur:0,corners:false,pixel:false,size:2400},
+  farbe:{mode:'color',count:250,smooth:0.8,speck:6,blur:1,corners:false,pixel:false,size:1600},
+  logo:{mode:'color',count:8,smooth:1,speck:16,blur:0,corners:true,pixel:false,size:1600},
+  illu:{mode:'color',count:24,smooth:1,speck:8,blur:1,corners:true,pixel:false,size:1600},
+  foto:{mode:'color',count:64,smooth:1.2,speck:24,blur:2,corners:false,pixel:false,size:1600},
   pixel:{mode:'color',count:32,smooth:0.5,speck:0,blur:0,corners:true,pixel:true,grid:128}
 };
-var S={preset:'illu',mode:'color',count:24,thr:0,smooth:1,speck:8,blur:1,corners:true,seams:true,size:1600,bg:'keep',pixel:false,grid:128,bgTol:30,bgHoles:false,bgEdge:true,bgMethod:'edge'};
+var S={preset:'illu',mode:'color',count:24,thr:0,smooth:1,speck:8,blur:1,corners:true,seams:true,size:1600,bg:'keep',pixel:false,grid:128,bgTol:30,bgHoles:false,bgEdge:true,bgMethod:'edge',lastPreset:'illu'};
 var tapMode='pick',wandOps=[],cut=null,workId=0,aiCache={},aiCb={},aiN=0,aiPending=null,aiList=null;
 try{var saved=JSON.parse(localStorage.getItem('vektorisierer.s')||'null');if(saved&&typeof saved==='object'){for(var k in S){if(k in saved)S[k]=saved[k];}}}catch(e){}
 S.thr=0;
@@ -1792,7 +1864,7 @@ function prepareWork(){
 }
 function sizeBox(){
   if(!work)return;var z=$('zoomer'),box=$('box');
-  var avail=z.clientWidth||600,maxH=Math.min(window.innerHeight*0.66,720);
+  var avail=z.clientWidth||600,maxH=z.clientHeight||Math.min(window.innerHeight*0.45,600);
   var fit=Math.min(avail/work.w,maxH/work.h);
   if(S.pixel&&fit>1)fit=Math.floor(fit)||fit;
   box.style.width=(work.w*fit*zoom)+'px';box.style.height=(work.h*fit*zoom)+'px';
@@ -2002,20 +2074,18 @@ function applyView(){
   // s = Anteil Vektor von links
   $('vec').style.clipPath='inset(0 '+(100-s)+'% 0 0)';
   $('divider').style.left=s+'%';$('divider').hidden=view!=='split';$('grip').style.left=s+'%';$('grip').hidden=view!=='split';$('grip').setAttribute('aria-valuenow',Math.round(s));
-  $('splitrow').hidden=view!=='split';
   $('lbl-l').hidden=view==='org';$('lbl-r').hidden=view==='vec';
   $('orgimg').style.visibility=view==='vec'?'hidden':'visible';
 }
 [['v-split','split'],['v-vec','vec'],['v-org','org']].forEach(function(p){$(p[0]).onclick=function(){view=p[1];['v-split','v-vec','v-org'].forEach(function(id){$(id).setAttribute('aria-pressed',id===p[0]);});applyView();};});
-$('split').oninput=function(){split=+this.value;applyView();};
 (function(){var g=$('grip'),drag=false;
-  function setFrom(e){var r=$('box').getBoundingClientRect();split=Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100));$('split').value=Math.round(split);applyView();}
+  function setFrom(e){var r=$('box').getBoundingClientRect();split=Math.max(0,Math.min(100,(e.clientX-r.left)/r.width*100));applyView();}
   g.addEventListener('pointerdown',function(e){drag=true;try{g.setPointerCapture(e.pointerId);}catch(_){}e.preventDefault();e.stopPropagation();});
   g.addEventListener('pointermove',function(e){if(drag)setFrom(e);});
   function end(e){drag=false;try{g.releasePointerCapture(e.pointerId);}catch(_){}}
   g.addEventListener('pointerup',end);g.addEventListener('pointercancel',end);
   g.addEventListener('click',function(e){e.stopPropagation();});
-  g.addEventListener('keydown',function(e){var d=e.key==='ArrowLeft'?-2:e.key==='ArrowRight'?2:0;if(!d)return;e.preventDefault();split=Math.max(0,Math.min(100,split+d));$('split').value=Math.round(split);applyView();});
+  g.addEventListener('keydown',function(e){var d=e.key==='ArrowLeft'?-2:e.key==='ArrowRight'?2:0;if(!d)return;e.preventDefault();split=Math.max(0,Math.min(100,split+d));applyView();});
 })();
 Array.prototype.forEach.call($('zoomseg').querySelectorAll('button'),function(b){b.onclick=function(){zoom=+b.dataset.z;Array.prototype.forEach.call($('zoomseg').querySelectorAll('button'),function(x){x.setAttribute('aria-pressed',x===b);});sizeBox();refreshPreview(0);};});
 window.addEventListener('resize',function(){clearTimeout(sizeBox.t);sizeBox.t=setTimeout(function(){sizeBox();refreshPreview(0);},150);});
@@ -2117,7 +2187,7 @@ async function saveFile(name,data,mime){
   try{var a=document.createElement('a');a.href=URL.createObjectURL(data instanceof Blob?data:new Blob([data],{type:mime}));a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1500);}
   catch(e){showToast('Speichern ging hier nicht. Nutze «SVG kopieren».');}
 }
-$('save').onclick=function(){if(!R)return;saveFile((src?src.name:'vektor')+'.svg',svgString(true),'image/svg+xml');};
+$('save').onclick=$('save2').onclick=function(){if(!R)return;saveFile((src?src.name:'vektor')+'.svg',svgString(true),'image/svg+xml');};
 $('savepng').onclick=function(){
   if(!R)return;var f=R.pix?Math.max(1,Math.min(Math.floor(4096/Math.max(R.w,R.h)),Math.round(2000/Math.max(R.w,R.h)))):Math.max(1,Math.min(4,Math.ceil(2000/Math.max(R.w,R.h))));
   rasterize(f).toBlob(function(b){if(b)saveFile((src?src.name:'vektor')+'.png',b,'image/png');},'image/png');
@@ -2144,6 +2214,8 @@ function syncControls(){
   $('f-grid').hidden=!S.pixel;$('f-smooth').hidden=S.pixel;
   Array.prototype.forEach.call($('gridchips').querySelectorAll('button'),function(b){b.setAttribute('aria-pressed',+b.dataset.g===S.grid);});
   var av=aiModels();$('bgmethod').hidden=!(S.bg==='remove'&&av.length);
+  $('qbg').checked=S.bg==='remove';$('qpix').checked=!!S.pixel;$('qaiwrap').hidden=!av.length;$('qainote').hidden=!!av.length;
+  Array.prototype.forEach.call($('qai').querySelectorAll('button'),function(b){var k=b.dataset.ai;b.hidden=k!=='off'&&!aiAvailable(k);b.setAttribute('aria-pressed',k===(aiMethod()||'off'));});
   Array.prototype.forEach.call($('bgmethod').querySelectorAll('button'),function(b){var k=b.dataset.me;b.hidden=k!=='edge'&&!aiAvailable(k);b.setAttribute('aria-pressed',k===(aiMethod()||'edge'));});
   $('bgopts').hidden=S.bg!=='remove'||!!aiMethod();$('bgtol').value=S.bgTol;$('o-bgtol').textContent=S.bgTol;$('bgholes').checked=S.bgHoles;$('bgedge').checked=S.bgEdge;
   Array.prototype.forEach.call($('tapseg').querySelectorAll('button'),function(b){b.setAttribute('aria-pressed',b.dataset.t===tapMode);});
@@ -2151,7 +2223,24 @@ function syncControls(){
   $('box').style.cursor=tapMode==='pick'?'crosshair':'cell';
 }
 function changed(prepare,delay){persist();syncControls();if(prepare&&src)prepareWork();run(delay==null?350:delay);}
-Array.prototype.forEach.call(document.querySelectorAll('.presets button'),function(b){b.onclick=function(){var P=PRESETS[b.dataset.p];S.preset=b.dataset.p;for(var k in P)S[k]=P[k];changed(true,0);};});
+function applyPreset(name){var P=PRESETS[name];if(!P)return;S.preset=name;if(name!=='pixel')S.lastPreset=name;for(var k in P)S[k]=P[k];changed(true,0);}
+Array.prototype.forEach.call(document.querySelectorAll('.presets button'),function(b){b.onclick=function(){applyPreset(b.dataset.p);};});
+// Schnellschalter
+$('qbg').onchange=function(){S.bg=this.checked?'remove':'keep';persist();syncControls();if(work){updateCut();run(0);}};
+$('qpix').onchange=function(){applyPreset(this.checked?'pixel':(S.lastPreset||'illu'));};
+Array.prototype.forEach.call($('qai').querySelectorAll('button'),function(b){b.onclick=function(){
+  var k=b.dataset.ai;if(k==='off'){S.bgMethod='edge';}else{S.bgMethod=k;S.bg='remove';}
+  persist();syncControls();if(work){updateCut();run(0);}};});
+// Bereiche (Daumenleiste)
+function showTab(t){
+  Array.prototype.forEach.call($('tabs').querySelectorAll('button'),function(b){b.setAttribute('aria-selected',b.dataset.tab===t);});
+  Array.prototype.forEach.call(document.querySelectorAll('.pane'),function(p){p.hidden=p.dataset.pane!==t;});
+  $('panelarea').scrollTop=0;try{localStorage.setItem('vektorisierer.tab',t);}catch(e){}
+}
+Array.prototype.forEach.call($('tabs').querySelectorAll('button'),function(b){b.onclick=function(){showTab(b.dataset.tab);};});
+(function(){var t=null;try{t=localStorage.getItem('vektorisierer.tab');}catch(e){}if(t&&document.querySelector('[data-pane="'+t+'"]'))showTab(t);})();
+// Bühne folgt ihrer Grösse (Drehen, Fenster, Desktop)
+if(window.ResizeObserver){var roT=null;new ResizeObserver(function(){clearTimeout(roT);roT=setTimeout(function(){sizeBox();refreshPreview(0);},120);}).observe($('zoomer'));}
 Array.prototype.forEach.call($('modeseg').querySelectorAll('button'),function(b){b.onclick=function(){S.mode=b.dataset.m;S.thr=0;changed(false,0);};});
 Array.prototype.forEach.call($('bgseg').querySelectorAll('button'),function(b){b.onclick=function(){S.bg=b.dataset.bg;persist();syncControls();if(work){updateCut();run(0);}};});
 $('bgtol').oninput=function(){S.bgTol=+this.value;$('o-bgtol').textContent=S.bgTol;persist();clearTimeout(cutT);cutT=setTimeout(function(){updateCut();run(0);},300);};
