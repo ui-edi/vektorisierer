@@ -30,3 +30,7 @@ Die Seite ist eine einzige Datei: `index.html` im Browser öffnen, fertig. Mit G
 
 - Nachzeichen-Motor: [imagetracer.js](https://github.com/jankovicsandras/imagetracerjs) von András Jankovics, gemeinfrei (Unlicense, siehe `vendor/imagetracer-LICENSE.txt`). Stand: Commit `cb0c84a`, 2023-11-09.
 - Geplant als zweiter Motor: [vtracer](https://github.com/visioncortex/vtracer) (MIT).
+
+## Lizenz
+
+MIT, siehe `LICENSE`. Der Motor in `vendor/` ist gemeinfrei und behält seine eigene Lizenz.
