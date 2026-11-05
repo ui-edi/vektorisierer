@@ -819,7 +819,25 @@ function updateStats(){
 
 // ---------- Speichern ----------
 (async function(){try{if(window.claude&&window.claude.use)downloads=await window.claude.use('downloads');}catch(e){downloads=null;}})();
+// ---------- Android-App: Brücke (nur aktiv, wenn die Seite in der Vektorisierer-App läuft) ----------
+var appCb={},appN=0,inApp=!!(window.VkApp&&window.VkApp.save);
+window.__vkSaved=function(id,ok,where){var f=appCb[id];delete appCb[id];if(f)f(ok,where);};
+window.vkAppToast=function(t){showToast(t);};
+window.vkOpenShared=function(url,name){
+  var img=new Image();
+  img.onload=function(){var c=document.createElement('canvas');c.width=img.naturalWidth;c.height=img.naturalHeight;c.getContext('2d').drawImage(img,0,0);useCanvas(c,name||'geteilt',false);};
+  img.onerror=function(){showToast('Das geteilte Bild liess sich nicht öffnen.');};
+  img.src=url;
+};
+function bytesToB64(u8){var s='',CH=0x8000;for(var i=0;i<u8.length;i+=CH)s+=String.fromCharCode.apply(null,u8.subarray(i,i+CH));return btoa(s);}
+function appSave(name,data,mime){
+  var p=typeof data==='string'?Promise.resolve(new TextEncoder().encode(data)):data.arrayBuffer().then(function(b){return new Uint8Array(b);});
+  return p.then(function(u8){var id='s'+(++appN);
+    return new Promise(function(res){appCb[id]=function(ok,where){showToast(ok?('Gespeichert in '+where+': '+name):('Speichern ging nicht: '+where));res();};
+      window.VkApp.save(name,bytesToB64(u8),mime,id);});});
+}
 async function saveFile(name,data,mime){
+  if(inApp){try{await appSave(name,data,mime);}catch(e){showToast('Speichern ging nicht: '+(e&&e.message||e));}return;}
   if(downloads){
     try{await downloads.save({filename:name,data:data});showToast('Gespeichert: '+name);}
     catch(err){var c=err&&err.code;if(c==='declined')return;if(c==='rate_limited'){showToast('Ein Speichern-Dialog ist schon offen.');return;}showToast('Speichern ging hier nicht. Nutze «SVG kopieren».');}

@@ -1,0 +1,10 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+*.jks
+*.keystore
+# wird beim Bauen aus ../index.html erzeugt
+app/src/main/assets/index.html

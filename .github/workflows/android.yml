@@ -1,0 +1,73 @@
+name: Android-App bauen
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'android/**'
+      - 'src/**'
+      - 'vendor/**'
+      - 'build.py'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.VK_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Seite bauen und in die App legen
+        run: |
+          python3 build.py
+          mkdir -p android/app/src/main/assets
+          cp index.html android/app/src/main/assets/index.html
+          ls -la android/app/src/main/assets
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android-SDK 36 bereitstellen (auf GitHub vorinstalliert)
+        working-directory: android
+        run: |
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "sdk.dir=$SDK" > local.properties
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SM" ]; then
+            yes | "$SM" --licenses > /dev/null || true
+            "$SM" --install "platforms;android-36" "build-tools;35.0.0" > /dev/null || echo "Hinweis: SDK-Teile werden beim Bauen nachgeladen"
+          fi
+
+      - name: Signier-Schlüssel bereitstellen
+        if: env.HAS_KEY == 'true'
+        env:
+          KS: ${{ secrets.VK_KEYSTORE_BASE64 }}
+        run: |
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/vektorisierer.jks"
+          echo "VK_KEYSTORE=$RUNNER_TEMP/vektorisierer.jks" >> "$GITHUB_ENV"
+
+      - name: App bauen
+        working-directory: android
+        env:
+          VK_KEYSTORE_PASSWORD: ${{ secrets.VK_KEYSTORE_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --stacktrace assembleRelease
+
+      - name: APK bereitlegen
+        run: |
+          mkdir -p out
+          SUFFIX=""
+          if [ "$HAS_KEY" != "true" ]; then SUFFIX="-testsignatur"; fi
+          cp android/app/build/outputs/apk/release/app-release.apk "out/Vektorisierer-1.0.${{ github.run_number }}${SUFFIX}.apk"
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Vektorisierer-1.0.${{ github.run_number }}
+          path: out/
+          retention-days: 30

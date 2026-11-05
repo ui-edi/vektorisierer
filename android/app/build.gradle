@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Versionsnummer: lokal 1, auf GitHub automatisch die Build-Nummer (jedes Update braucht eine höhere Zahl)
+def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1').toInteger()
+def keystore = System.getenv('VK_KEYSTORE')
+
+android {
+    namespace 'ch.vektorisierer.app'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'ch.vektorisierer.app'
+        minSdk 29
+        targetSdk 36
+        versionCode buildNumber
+        versionName '1.0.' + buildNumber
+    }
+
+    signingConfigs {
+        release {
+            // Eigener Schlüssel aus den GitHub-Secrets (VK_KEYSTORE_BASE64, VK_KEYSTORE_PASSWORD).
+            // Ohne Schlüssel wird mit einem Test-Schlüssel signiert; solche Versionen lassen sich nicht als Update installieren.
+            if (keystore) {
+                storeFile file(keystore)
+                storePassword System.getenv('VK_KEYSTORE_PASSWORD')
+                keyAlias 'vektorisierer'
+                keyPassword System.getenv('VK_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

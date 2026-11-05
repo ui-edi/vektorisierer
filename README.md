@@ -17,6 +17,16 @@ Bild rein, SVG raus. Der Vektorisierer wandelt Bilder direkt im Browser in Vekto
 
 Die Seite ist eine einzige Datei: `index.html` im Browser öffnen, fertig. Mit GitHub Pages läuft sie unter `https://ui-edi.github.io/vektorisierer/`.
 
+## Android-App
+
+Im Ordner `android/` steckt die App: Sie bringt die Seite eingebaut mit und läuft komplett offline, ganz ohne Internet-Berechtigung. Dazu kann sie, was der Browser nicht kann:
+
+- Bilder über «Teilen» oder «Öffnen mit» empfangen
+- PNG direkt in Bilder/Vektorisierer, SVG in Downloads/Vektorisierer speichern
+- kein automatisches Umfärben durch den Dunkelmodus
+
+GitHub Actions baut die APK bei jeder Änderung (Workflow «Android-App bauen»). Damit sich neue Versionen als Update installieren lassen, braucht das Repo zwei Secrets: `VK_KEYSTORE_BASE64` und `VK_KEYSTORE_PASSWORD`. Ohne sie entsteht eine APK mit Test-Signatur.
+
 ## Aufbau
 
 | Datei | Zweck |
@@ -25,6 +35,8 @@ Die Seite ist eine einzige Datei: `index.html` im Browser öffnen, fertig. Mit G
 | `src/vektorisierer.html` | Quelltext: Oberfläche, Farbsuche, Freisteller, Pixelraster |
 | `vendor/imagetracer_v1.2.6.js` | Nachzeichen-Motor |
 | `build.py` | Setzt Quelltext und Motor zu `index.html` zusammen: `python3 build.py` |
+| `android/` | Android-App (Java, ohne Zusatzbibliotheken) |
+| `.github/workflows/android.yml` | Baut die APK |
 
 ## Danke
 
