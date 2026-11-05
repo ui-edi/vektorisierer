@@ -8,3 +8,5 @@ local.properties
 *.keystore
 # wird beim Bauen aus ../index.html erzeugt
 app/src/main/assets/index.html
+# KI-Modelle werden beim Bauen aus der offiziellen Quelle geladen und geprüft
+app/src/main/assets/models/

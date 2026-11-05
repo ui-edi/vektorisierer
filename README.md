@@ -24,6 +24,10 @@ Im Ordner `android/` steckt die App: Sie bringt die Seite eingebaut mit und läu
 - Bilder über «Teilen» oder «Öffnen mit» empfangen
 - PNG direkt in Bilder/Vektorisierer, SVG in Downloads/Vektorisierer speichern
 - kein automatisches Umfärben durch den Dunkelmodus
+- **KI-Freisteller**, direkt auf dem Handy und ohne Internet:
+  - «KI Foto» mit [U²-Net](https://github.com/xuebinqin/U-2-Net) (Apache 2.0)
+  - «KI Zeichnung» mit [ISNet-Anime](https://github.com/SkyTNT/anime-segmentation) (Apache 2.0)
+  - gerechnet mit [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT); die Modelle lädt der Bauvorgang aus dem [rembg-Projekt](https://github.com/danielgatis/rembg) und prüft sie per Prüfsumme
 
 GitHub Actions baut die APK bei jeder Änderung (Workflow «Android-App bauen»). Damit sich neue Versionen als Update installieren lassen, braucht das Repo zwei Secrets: `VK_KEYSTORE_BASE64` und `VK_KEYSTORE_PASSWORD`. Ohne sie entsteht eine APK mit Test-Signatur.
 

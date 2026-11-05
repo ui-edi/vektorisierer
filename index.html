@@ -243,6 +243,11 @@ textarea.fallback{width:100%;height:120px;font:12px var(--f-mono);background:var
             <button data-bg="keep" aria-pressed="true">Behalten</button>
             <button data-bg="remove" aria-pressed="false">Entfernen</button>
           </div>
+          <div class="seg" role="group" aria-label="Methode zum Freistellen" id="bgmethod" hidden>
+            <button data-me="edge" aria-pressed="true">Rand-Erkennung</button>
+            <button data-me="foto" aria-pressed="false">KI Foto</button>
+            <button data-me="zeichnung" aria-pressed="false">KI Zeichnung</button>
+          </div>
           <p class="hint" id="bghint">Erkennt den Hintergrund vom Rand her und stellt das Motiv frei.</p>
           <div class="bgopts" id="bgopts">
             <div class="field">
@@ -1714,8 +1719,8 @@ var PRESETS={
   foto:{mode:'color',count:64,smooth:1.2,speck:24,blur:2,corners:false,pixel:false},
   pixel:{mode:'color',count:32,smooth:0.5,speck:0,blur:0,corners:true,pixel:true,grid:128}
 };
-var S={preset:'illu',mode:'color',count:24,thr:0,smooth:1,speck:8,blur:1,corners:true,seams:true,size:1600,bg:'keep',pixel:false,grid:128,bgTol:30,bgHoles:false,bgEdge:true};
-var tapMode='pick',wandOps=[],cut=null;
+var S={preset:'illu',mode:'color',count:24,thr:0,smooth:1,speck:8,blur:1,corners:true,seams:true,size:1600,bg:'keep',pixel:false,grid:128,bgTol:30,bgHoles:false,bgEdge:true,bgMethod:'edge'};
+var tapMode='pick',wandOps=[],cut=null,workId=0,aiCache={},aiCb={},aiN=0,aiPending=null,aiList=null;
 try{var saved=JSON.parse(localStorage.getItem('vektorisierer.s')||'null');if(saved&&typeof saved==='object'){for(var k in S){if(k in saved)S[k]=saved[k];}}}catch(e){}
 S.thr=0;
 function persist(){try{localStorage.setItem('vektorisierer.s',JSON.stringify(S));}catch(e){}}
@@ -1781,7 +1786,7 @@ function prepareWork(){
   var wc=document.createElement('canvas');wc.width=w;wc.height=h;var g=wc.getContext('2d');
   g.imageSmoothingEnabled=!S.pixel;g.imageSmoothingQuality='high';g.drawImage(c,0,0,w,h);
   work={w:w,h:h,canvas:wc,data:g.getImageData(0,0,w,h)};
-  wandOps=[];updateCut();
+  wandOps=[];workId++;aiCache={};updateCut();
   $('box').classList.toggle('pixel',S.pixel);
   sizeBox();
 }
@@ -1797,7 +1802,7 @@ function sizeBox(){
 var runT=null;
 function run(delay){clearTimeout(runT);runT=setTimeout(go,delay||0);}
 function go(){
-  if(!work||!worker)return;
+  if(!work||!worker||aiPending)return;
   jobId++;var buf=(cut?cut.data:work.data).data.slice().buffer;
   $('busy').hidden=false;$('busybar').style.width='3%';$('busytxt').textContent='Bild wird vorbereitet …';
   worker.postMessage({job:jobId,w:work.w,h:work.h,buf:buf,s:{mode:S.mode,count:S.count,thr:S.thr,smooth:S.smooth,speck:S.speck,blur:S.blur,corners:S.corners,pixel:S.pixel,grid:S.grid}},[buf]);
@@ -1880,19 +1885,55 @@ function setOrg(c){$('orgimg').src=c.toDataURL('image/png');}
 function updateCut(){
   if(!work)return;var w=work.w,h=work.h,N=w*h,d=work.data.data;
   if(S.bg!=='remove'){cut=null;setOrg(work.canvas);$('bghint').textContent='Erkennt den Hintergrund vom Rand her und stellt das Motiv frei.';syncControls();return;}
-  var res=computeMask(d,w,h),mask=res.mask;
+  var res,mask,ai=aiMethod();
+  if(ai){var key=ai+'|'+workId;
+    if(!aiCache[key]){requestAi(ai,key);cut=null;setOrg(work.canvas);$('bghint').textContent='KI stellt frei …';syncControls();return;}
+    mask=aiCache[key].mask.slice();for(var q=0;q<N;q++){if(d[q*4+3]<128)mask[q]=1;}
+    res={mask:mask,model:[],holes:0,ai:aiCache[key]};}
+  else{res=computeMask(d,w,h);mask=res.mask;}
   wandOps.forEach(function(op){applyWand(d,w,h,mask,op);});
   var out=new ImageData(new Uint8ClampedArray(d),w,h),od=out.data,removed=0,opaque=0;
   for(var p=0;p<N;p++){var a=d[p*4+3]>=128;if(a)opaque++;if(mask[p]){if(a)removed++;od[p*4+3]=0;}}
   cut={data:out,mask:mask};
   var c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').putImageData(out,0,0);setOrg(c);
   var pct=opaque?Math.round(removed/opaque*100):0,hint;
-  if(res.model.length){hint='Hintergrund erkannt: '+res.model.map(hx2).join(', ')+(res.model.length>1?' (mehrere Töne, z. B. Schachbrett oder Verlauf)':'')+'. '+pct+' % der Fläche entfernt'+(res.holes?', davon '+res.holes+(res.holes===1?' eingeschlossene Lücke':' eingeschlossene Lücken'):'')+'.';}
+  if(res.ai){hint='KI '+res.ai.label+' hat '+pct+' % als Hintergrund erkannt ('+(res.ai.ms/1000).toFixed(1)+' s). Feinschliff mit «Wegnehmen» und «Zurückholen».';}
+  else if(res.model.length){hint='Hintergrund erkannt: '+res.model.map(hx2).join(', ')+(res.model.length>1?' (mehrere Töne, z. B. Schachbrett oder Verlauf)':'')+'. '+pct+' % der Fläche entfernt'+(res.holes?', davon '+res.holes+(res.holes===1?' eingeschlossene Lücke':' eingeschlossene Lücken'):'')+'.';}
   else if(opaque<N){hint='Das Bild ist schon freigestellt. Mit «Wegnehmen» entfernst du weitere Flächen per Tipp.';}
   else{hint='Am Rand ist kein eindeutiger Hintergrund. Wähle «Wegnehmen» und tippe auf den Hintergrund.';}
   if(wandOps.length)hint+=' '+wandOps.length+(wandOps.length===1?' Tipp':' Tipps')+' angewendet.';
   $('bghint').textContent=hint;syncControls();
 }
+// ---------- KI-Freisteller (nur in der Android-App) ----------
+function aiModels(){if(aiList===null){aiList=[];try{if(window.VkApp&&window.VkApp.aiModels)aiList=JSON.parse(window.VkApp.aiModels()||'[]')||[];}catch(e){aiList=[];}}return aiList;}
+function aiAvailable(k){return aiModels().some(function(m){return m.key===k;});}
+function aiMethod(){return (S.bg==='remove'&&S.bgMethod!=='edge'&&aiAvailable(S.bgMethod))?S.bgMethod:null;}
+function requestAi(model,key){
+  if(aiPending===key)return;aiPending=key;
+  $('busy').hidden=false;$('busybar').style.width='35%';$('busytxt').textContent='KI stellt frei … (beim ersten Mal lädt das Modell ein paar Sekunden)';
+  var w=work.w,h=work.h,f=Math.min(1,1024/Math.max(w,h)),c=document.createElement('canvas');
+  c.width=Math.max(1,Math.round(w*f));c.height=Math.max(1,Math.round(h*f));var g=c.getContext('2d');
+  g.fillStyle='#ffffff';g.fillRect(0,0,c.width,c.height);g.imageSmoothingQuality='high';g.drawImage(work.canvas,0,0,c.width,c.height);
+  var id='a'+(++aiN);aiCb[id]={key:key,workId:workId};
+  try{window.VkApp.segment(model,c.toDataURL('image/jpeg',0.92).split(',')[1],id);}
+  catch(e){delete aiCb[id];aiFailed('Die KI liess sich nicht starten.');}
+}
+function aiFailed(msg){aiPending=null;$('busy').hidden=true;showToast(msg+' Ich nehme die Rand-Erkennung.');S.bgMethod='edge';persist();syncControls();updateCut();run(0);}
+window.__vkSeg=function(id,ok,payload,ms,label){
+  var r=aiCb[id];delete aiCb[id];if(!r)return;
+  if(!ok){aiFailed('KI-Freistellung ging nicht ('+payload+').');return;}
+  if(r.workId!==workId){aiPending=null;$('busy').hidden=true;updateCut();run(0);return;}
+  var img=new Image();
+  img.onload=function(){
+    var w=work.w,h=work.h,c=document.createElement('canvas');c.width=w;c.height=h;var g=c.getContext('2d');
+    g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.drawImage(img,0,0,w,h);
+    var px=g.getImageData(0,0,w,h).data,N=w*h,mask=new Uint8Array(N);
+    for(var p=0;p<N;p++)mask[p]=px[p*4]<128?1:0;
+    aiCache[r.key]={mask:mask,label:label||'',ms:ms||0};aiPending=null;$('busy').hidden=true;updateCut();run(0);
+  };
+  img.onerror=function(){aiFailed('Die KI-Maske war unlesbar.');};
+  img.src='data:image/png;base64,'+payload;
+};
 function wandTap(x,y,t){
   var before=wandOps.length;wandOps.push({x:x,y:y,t:t});
   var m=cut?cut.mask.slice():null;
@@ -2102,7 +2143,9 @@ function syncControls(){
   $('corners').checked=S.corners;$('seams').checked=S.seams;
   $('f-grid').hidden=!S.pixel;$('f-smooth').hidden=S.pixel;
   Array.prototype.forEach.call($('gridchips').querySelectorAll('button'),function(b){b.setAttribute('aria-pressed',+b.dataset.g===S.grid);});
-  $('bgopts').hidden=S.bg!=='remove';$('bgtol').value=S.bgTol;$('o-bgtol').textContent=S.bgTol;$('bgholes').checked=S.bgHoles;$('bgedge').checked=S.bgEdge;
+  var av=aiModels();$('bgmethod').hidden=!(S.bg==='remove'&&av.length);
+  Array.prototype.forEach.call($('bgmethod').querySelectorAll('button'),function(b){var k=b.dataset.me;b.hidden=k!=='edge'&&!aiAvailable(k);b.setAttribute('aria-pressed',k===(aiMethod()||'edge'));});
+  $('bgopts').hidden=S.bg!=='remove'||!!aiMethod();$('bgtol').value=S.bgTol;$('o-bgtol').textContent=S.bgTol;$('bgholes').checked=S.bgHoles;$('bgedge').checked=S.bgEdge;
   Array.prototype.forEach.call($('tapseg').querySelectorAll('button'),function(b){b.setAttribute('aria-pressed',b.dataset.t===tapMode);});
   $('wandrow').hidden=!(S.bg==='remove'&&wandOps.length);
   $('box').style.cursor=tapMode==='pick'?'crosshair':'cell';
@@ -2119,6 +2162,7 @@ Array.prototype.forEach.call($('tapseg').querySelectorAll('button'),function(b){
   if(tapMode!=='pick'&&S.bg!=='remove'){S.bg='remove';persist();syncControls();updateCut();run(0);}
   showToast(tapMode==='pick'?'Tippen findet die Farbe in den Ebenen':(tapMode==='cut'?'Tippe auf eine Fläche, die weg soll':'Tippe auf eine Fläche, die bleiben soll'));};});
 Array.prototype.forEach.call($('gridchips').querySelectorAll('button'),function(b){b.onclick=function(){S.grid=+b.dataset.g;changed(false,0);};});
+Array.prototype.forEach.call($('bgmethod').querySelectorAll('button'),function(b){b.onclick=function(){S.bgMethod=b.dataset.me;persist();syncControls();updateCut();run(0);};});
 $('wandundo').onclick=function(){if(wandOps.length){wandOps.pop();updateCut();run(0);}};
 $('wandclear').onclick=function(){if(wandOps.length){wandOps=[];updateCut();run(0);}};
 Array.prototype.forEach.call($('sizechips').querySelectorAll('button'),function(b){b.onclick=function(){S.size=+b.dataset.s;changed(true,0);};});

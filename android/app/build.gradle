@@ -16,6 +16,13 @@ android {
         targetSdk 36
         versionCode buildNumber
         versionName '1.0.' + buildNumber
+        // Nur 64-Bit-ARM (alle aktuellen Handys): hält die KI-Bibliothek klein
+        ndk { abiFilters 'arm64-v8a' }
+    }
+
+    // KI-Modelle unkomprimiert lassen (lassen sich kaum packen, so lädt die App sie schneller)
+    androidResources {
+        noCompress 'onnx'
     }
 
     signingConfigs {
@@ -43,8 +50,17 @@ android {
         checkReleaseBuilds false
     }
 
+    packaging {
+        jniLibs { useLegacyPackaging false }
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // ONNX Runtime von Microsoft (MIT-Lizenz): rechnet die KI-Modelle auf dem Gerät
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'
 }

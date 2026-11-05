@@ -26,6 +26,25 @@ jobs:
           cp index.html android/app/src/main/assets/index.html
           ls -la android/app/src/main/assets
 
+      - name: KI-Modelle laden und prüfen
+        # Offizielle ONNX-Dateien aus dem rembg-Projekt; die Prüfsummen verhindern, dass eine veränderte Datei in die App gelangt.
+        #   u2net.onnx       – U²-Net (Apache 2.0), «KI Foto»
+        #   isnet-anime.onnx – ISNet-Anime von SkyTNT (Apache 2.0), «KI Zeichnung»
+        run: |
+          set -euo pipefail
+          D=android/app/src/main/assets/models
+          mkdir -p "$D"
+          BASE=https://github.com/danielgatis/rembg/releases/download/v0.0.0
+          curl -fsSL --retry 3 -o "$D/u2net.onnx" "$BASE/u2net.onnx"
+          curl -fsSL --retry 3 -o "$D/isnet-anime.onnx" "$BASE/isnet-anime.onnx"
+          cat > "$RUNNER_TEMP/models.sha256" <<'SUMS'
+          8d10d2f3bb75ae3b6d527c77944fc5e7dcd94b29809d47a739a7a728a912b491  android/app/src/main/assets/models/u2net.onnx
+          f15622d853e8260172812b657053460e20806f04b9e05147d49af7bed31a6e99  android/app/src/main/assets/models/isnet-anime.onnx
+          SUMS
+          sed -i 's/^ *//' "$RUNNER_TEMP/models.sha256"
+          sha256sum -c "$RUNNER_TEMP/models.sha256"
+          ls -la "$D"
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

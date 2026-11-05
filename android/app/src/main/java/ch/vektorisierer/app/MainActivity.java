@@ -28,6 +28,8 @@ import android.webkit.WebViewClient;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Vektorisierer als App: zeigt die eingebaute Seite (assets/index.html) offline an
@@ -46,6 +48,8 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private boolean pageReady = false;
     private Uri pendingShare = null;
+    private Segmenter segmenter;
+    private final ExecutorService aiQueue = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -75,6 +79,7 @@ public class MainActivity extends Activity {
             s.setAlgorithmicDarkeningAllowed(false);
         }
 
+        segmenter = new Segmenter(this);
         web.addJavascriptInterface(new Bridge(), "VkApp");
 
         web.setWebChromeClient(new WebChromeClient() {
@@ -136,6 +141,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        aiQueue.shutdownNow();
         if (web != null) web.destroy();
         super.onDestroy();
     }
@@ -220,6 +226,35 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String platform() {
             return "android";
+        }
+
+        /** Welche KI-Modelle in der App stecken (JSON). */
+        @JavascriptInterface
+        public String aiModels() {
+            return segmenter.availableJson();
+        }
+
+        /** KI-Freistellung: Ergebnis kommt über window.__vkSeg(id, ok, maskeOderFehler, millisekunden, modell). */
+        @JavascriptInterface
+        public void segment(String key, String imageBase64, String callbackId) {
+            aiQueue.execute(() -> {
+                long t0 = System.currentTimeMillis();
+                boolean ok = false;
+                String payload;
+                String label = "";
+                try {
+                    label = segmenter.label(key);
+                    payload = segmenter.segment(key, imageBase64);
+                    ok = true;
+                } catch (OutOfMemoryError e) {
+                    payload = "Zu wenig Arbeitsspeicher";
+                } catch (Throwable e) {
+                    payload = String.valueOf(e.getMessage());
+                }
+                long ms = System.currentTimeMillis() - t0;
+                final String js = "window.__vkSeg&&window.__vkSeg(" + jsString(callbackId) + "," + ok + "," + jsString(payload) + "," + ms + "," + jsString(label) + ")";
+                runOnUiThread(() -> web.evaluateJavascript(js, null));
+            });
         }
 
         /** Speichert eine Datei. PNG landet in Bilder/Vektorisierer, alles andere in Downloads/Vektorisierer. */
